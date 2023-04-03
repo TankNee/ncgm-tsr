@@ -1,0 +1,8 @@
+configs/*.yaml
+configs/*.yml
+__pycache__/
+.vscode/
+logs/*.log
+logs/*.zip
+test.ipynb
+.idea
