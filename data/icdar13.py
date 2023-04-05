@@ -1,14 +1,20 @@
 import torch
 from torch import nn
 import os
-import json
+import pickle
 from logger import logger
 from config import Config
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 
+
 class ICDAR13Dataset(Dataset):
+    """ICDAR13 Dataset
+
+    Reference: https://github.com/xuewenyuan/TGRNet/blob/main/data/tbrec_icdar13table_dataset.py
+    """
+
     def __init__(self, args: Config):
         mode = args["mode"]
         args_prefix = f"{mode}.dataset"
@@ -25,7 +31,7 @@ class ICDAR13Dataset(Dataset):
         self.data_list = self.load_file_path()
 
     def load_file_path(self):
-        """ Load file path
+        """Load file path
 
         Returns:
             data (list): list of dict, each dict contains chunk_path, img_path, structure_path
@@ -35,9 +41,19 @@ class ICDAR13Dataset(Dataset):
             for line in f.readlines():
                 data.append(line.readlines().strip().split())
         return data
-    
+
     def __len__(self):
         return len(self.data_list)
-    
+
     def __getitem__(self, idx):
+        table_pkl, node_csv, _, target_csv = self.data_list[idx]
+
+        table_annotation = pickle.load(open(os.path.join(self.path, table_pkl), "rb"))
+        table_name = table_pkl.split("/")[-1].replace(".pkl", "")
+
+        table_img = Image.open(
+            os.path.join(self.path, table_annotation["image_path"])
+        ).convert("RGB")
+
+    def collect_fn(self, batch):
         pass

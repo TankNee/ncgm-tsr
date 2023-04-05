@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 from config import Config
+from torchvision import models as CVModels
+from torchvision import ops as CVOps
 from model.ece import EgoContextExtractor
 from model.ccs import CrossContextSynthesizer
 
@@ -61,8 +63,73 @@ class NCGM(nn.Module):
         args_prefix = f"{args['mode']}.model.ncgm"
         num_hidden_concat = args[f"{args_prefix}.num_hidden"] * 3
         num_hidden_fc = args[f"{args_prefix}.num_hidden_fc"]
+        num_backbone_filter_size = args[f"{args_prefix}.num_backbone_filter_size"]
+        num_backbone_filter_out_channel = args[
+            f"{args_prefix}.num_backbone_filter_out_channel"
+        ]
+        self.roi_align_size = args[f"{args_prefix}.roi_align_size"]
         self.num_block = args[f"{args_prefix}.num_block"]
+
+        # Extract geometry features
+        self.geometry_fc = nn.Sequential(
+            nn.Linear(4, args[f"{args_prefix}.num_hidden"]),
+            nn.ReLU(),
+        )
+
+        # Extract content features
+        self.content_embedding = nn.Embedding(
+            args[f"{args_prefix}.num_content_vocab"],
+            args[f"{args_prefix}.num_hidden"],
+        )
+
+
+        # Extract appearance features
+        self.resnet18 = CVModels.resnet18(pretrained=True)
+        self.backbone_cnn = nn.Sequential(
+            self.resnet18.conv1,
+            self.resnet18.bn1,
+            self.resnet18.relu,
+            self.resnet18.maxpool,
+            self.resnet18.layer1,
+            nn.Conv2d(
+                num_backbone_filter_out_channel,
+                num_backbone_filter_out_channel,
+                num_backbone_filter_size,
+            ),
+            nn.BatchNorm2d(num_backbone_filter_out_channel),
+            nn.ReLU(),
+            nn.Conv2d(
+                num_backbone_filter_out_channel,
+                num_backbone_filter_out_channel,
+                num_backbone_filter_size,
+            ),
+            nn.BatchNorm2d(num_backbone_filter_out_channel),
+            nn.ReLU(),
+            nn.Conv2d(
+                num_backbone_filter_out_channel,
+                num_backbone_filter_out_channel,
+                num_backbone_filter_size,
+            ),
+            nn.BatchNorm2d(num_backbone_filter_out_channel),
+            nn.ReLU(),
+        )
+        # apply roi align in term of text bounding box
+        self.appearance_fc = nn.Sequential(
+            # 此处Linear的第一个参数是输入的维度，输入是roi_align的输出，该输出的形状是(num_node, num_feat_map, 2, 2)
+            nn.Linear(
+                self.roi_align_size**2 * num_backbone_filter_out_channel,
+                args[f"{args_prefix}.num_hidden"],
+            ),
+            nn.ReLU(),
+        )
+
+        # collaborative blocks
         self.blocks = nn.Sequential()
+        for idx in range(self.num_block):
+            self.blocks.add_module(
+                f"collaborative_block_{idx}", CollaborativeBlock(args)
+            )
+
         # binary classification
         self.cell_fc = nn.Sequential(
             nn.Linear(num_hidden_concat, num_hidden_fc),
@@ -82,11 +149,6 @@ class NCGM(nn.Module):
             nn.Linear(num_hidden_fc, 2),
             nn.Softmax(dim=-1),
         )
-
-        for idx in range(self.num_block):
-            self.blocks.add_module(
-                f"collaborative_block_{idx}", CollaborativeBlock(args)
-            )
 
     def forward(self, geometry, appearance, content):
         for block in self.blocks:
