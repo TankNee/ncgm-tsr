@@ -1,12 +1,14 @@
-import torch
+import gensim
 from torch import nn
 import os
 import json
 from logger import logger
+import pandas as pd
 from config import Config
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
+
 
 class SciTSRDataset(Dataset):
     def __init__(self, args: Config):
@@ -17,42 +19,18 @@ class SciTSRDataset(Dataset):
         self.img_shape = tuple(
             [int(x) for x in args[f"{args_prefix}.img_shape"].split(",")]
         )
+        self.word2vec = gensim.models.KeyedVectors.load_word2vec_format(
+            args[f"{args_prefix}.word2vec.path"]
+        )
+        logger.debug(f"Word2vec loaded from {args[f'{args_prefix}.word2vec.path']}")
         self.args = args
         self.mode = mode
 
         if not os.path.exists(self.path):
             raise FileNotFoundError(f"Path {self.path} not found")
-        self.data_list = self.load_file_path()
-
-    def load_file_path(self):
-        """ Load file path
-
-        此处加载三种数据
-        1. chunk_path: chunk 文件中是单元格的坐标信息 [x1, y1, x2, y2]，以及单元格的文本信息
-        2. img_path: 图像文件
-        3. structure_path: structure 文件中是表格的结构信息，包括单元格的逻辑位置，start_row, start_col, end_row, end_col，是标签
-
-        Returns:
-            data (list): list of dict, each dict contains chunk_path, img_path, structure_path
-        """
-        # load chunk path
-        data = []
-        for file in os.listdir(os.path.join(self.path, self.mode, "chunk")):
-            if file.endswith(".chunk"):
-                file_name = file[: -len(".chunk")]
-                data.append(
-                    {
-                        "chunk_path": os.path.join(self.path, self.mode, "chunk", file),
-                        "img_path": os.path.join(
-                            self.path, self.mode, "img", file_name + ".png"
-                        ),
-                        "structure_path": os.path.join(
-                            self.path, self.mode, "structure", file_name + ".json"
-                        ),
-                    }
-                )
-        assert len(data) == len(os.listdir(os.path.join(self.path, self.mode, "chunk")))
-        return data
+        self.data_list = pd.read_csv(
+            os.path.join(self.path, f"{self.mode}.csv")
+        ).values.tolist()
 
     def get_transform(self, img_height, img_width):
         img_transforms = []
@@ -123,21 +101,63 @@ class SciTSRDataset(Dataset):
         ) = self.get_transform(img.height, img.width)
         img = img_transform(img)
 
-        return img
+        return img, img_scale
 
     def __len__(self):
         return len(self.data_list)
 
-    def __getitem__(self, idx):
-        item = self.data_list[idx]
-        cp, ip, sp = item["chunk_path"], item["img_path"], item["structure_path"]
-        for p in [cp, ip, sp]:
-            if not os.path.exists(p):
-                raise FileNotFoundError(f"Path {p} not found")
-        with open(sp, "r") as f:
-            structure = json.load(f)
-        with open(cp, "r") as f:
-            chunk = json.load(f)
-        img = self.load_img(ip)
-        return chunk, img, structure
+    def __getitem__(self, idx: int):
+        """Get item by index
 
+        Args:
+            idx (int): index of item
+        Returns:
+            geometry (list): geometry of text segment bounding box. N * (x,y,w,h)
+            appearance (torch.Tensor): appearance of whole table image. N * (C,H,W)
+            content (list): content of text segment bounding box.   N * (str)
+            bounding_box (list): bounding box of text segment bounding box. N * (x1,y1,x2,y2)
+            structure (list): structure label of table. N
+            scale (float): scale of image. 1
+        """
+        item = self.data_list[idx]
+
+        content = []  # content of text segment bounding box.
+        geometry = []  # geometry of text segment bounding box. (x,y,w,h)
+        bounding_box = []  # bounding box of text segment bounding box. (x1,y1,x2,y2)
+
+        if self.mode == "train":
+            _, chunk_path, _, image_path, _, structure_path = item
+        else:
+            _, chunk_path, _, image_path, structure_path = item
+        # text segment bounding box
+        with open(os.path.join(self.path, self.mode, chunk_path), "r") as f:
+            chunk = json.load(f)["chunks"]
+        for cell in chunk:
+            x_min, x_max, y_min, y_max = cell["pos"]
+            text = cell["text"]
+            content.append(text)
+            geometry.append(
+                [
+                    (x_min + x_max) / 2,  # center x of bounding box
+                    (y_min + y_max) / 2,  # center y of bounding box
+                    x_max - x_min,
+                    y_max - y_min,
+                ]
+            )
+            bounding_box.append([x_min, y_min, x_max, y_max])
+
+        # whole table image
+        appearance, scale = self.load_img(
+            os.path.join(self.path, self.mode, image_path)
+        )
+
+        # structure label
+        with open(os.path.join(self.path, self.mode, structure_path), "r") as f:
+            structure = json.load(f)["cells"]
+
+        # sort cell of structure by id
+        structure = sorted(structure, key=lambda x: x["id"])
+        # SciTSR 的评估方法 https://github.com/Academic-Hammer/SciTSR/blob/master/examples/eval.py
+        # 这个数据集的标签是评估 Logical Relation
+
+        return geometry, appearance, content, bounding_box, structure, scale

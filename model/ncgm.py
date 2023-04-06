@@ -76,12 +76,13 @@ class NCGM(nn.Module):
             nn.ReLU(),
         )
 
-        # Extract content features
-        self.content_embedding = nn.Embedding(
-            args[f"{args_prefix}.num_content_vocab"],
+        # Extract content features, in: (batch_size * num_node, num_word2vec_emb, 7, 1)
+        # out: (batch_size * num_node, num_hidden, 1, 1)
+        self.content_conv = nn.Conv2d(
+            args[f"{args_prefix}.num_word2vec_emb"],
             args[f"{args_prefix}.num_hidden"],
+            (7, 1),
         )
-
 
         # Extract appearance features
         self.resnet18 = CVModels.resnet18(pretrained=True)
@@ -95,6 +96,7 @@ class NCGM(nn.Module):
                 num_backbone_filter_out_channel,
                 num_backbone_filter_out_channel,
                 num_backbone_filter_size,
+                padding=1,  # to keep the size of feature map
             ),
             nn.BatchNorm2d(num_backbone_filter_out_channel),
             nn.ReLU(),
@@ -102,6 +104,7 @@ class NCGM(nn.Module):
                 num_backbone_filter_out_channel,
                 num_backbone_filter_out_channel,
                 num_backbone_filter_size,
+                padding=1,  # to keep the size of feature map
             ),
             nn.BatchNorm2d(num_backbone_filter_out_channel),
             nn.ReLU(),
@@ -109,15 +112,16 @@ class NCGM(nn.Module):
                 num_backbone_filter_out_channel,
                 num_backbone_filter_out_channel,
                 num_backbone_filter_size,
+                padding=1,  # to keep the size of feature map
             ),
             nn.BatchNorm2d(num_backbone_filter_out_channel),
             nn.ReLU(),
         )
-        # apply roi align in term of text bounding box
+        # apply roi align in terms of text bounding box
         self.appearance_fc = nn.Sequential(
-            # 此处Linear的第一个参数是输入的维度，输入是roi_align的输出，该输出的形状是(num_node, num_feat_map, 2, 2)
+            # 此处Linear的第一个参数是输入的维度，输入是roi_align的输出，该输出的形状是(num_node, out_channel, 2, 2)
             nn.Linear(
-                self.roi_align_size**2 * num_backbone_filter_out_channel,
+                self.roi_align_size ** 2 * num_backbone_filter_out_channel,
                 args[f"{args_prefix}.num_hidden"],
             ),
             nn.ReLU(),
@@ -134,28 +138,47 @@ class NCGM(nn.Module):
         self.cell_fc = nn.Sequential(
             nn.Linear(num_hidden_concat, num_hidden_fc),
             nn.ReLU(),
-            nn.Linear(num_hidden_fc, 2),
-            nn.Softmax(dim=-1),
+            nn.Linear(num_hidden_fc, 2)
         )
         self.row_fc = nn.Sequential(
             nn.Linear(num_hidden_concat, num_hidden_fc),
             nn.ReLU(),
-            nn.Linear(num_hidden_fc, 2),
-            nn.Softmax(dim=-1),
+            nn.Linear(num_hidden_fc, 2)
         )
         self.col_fc = nn.Sequential(
             nn.Linear(num_hidden_concat, num_hidden_fc),
             nn.ReLU(),
-            nn.Linear(num_hidden_fc, 2),
-            nn.Softmax(dim=-1),
+            nn.Linear(num_hidden_fc, 2)
         )
 
-    def forward(self, geometry, appearance, content):
+    def forward(self, geometry, appearance, content, bounding_boxes):
+        """
+        Args:
+            geometry: (batch_size, num_node, 4)
+            appearance: (batch_size, 3, 512, 512)
+            content: (batch_size, num_node, 7, num_word2vec_emb)
+            bounding_boxes: (batch_size, num_node, 4) (x1, y1, x2, y2)
+        Returns:
+            processed geometry, appearance, content
+        """
+
+        geometry_emb = self.geometry_fc(geometry)
+        cnn_feat = self.backbone_cnn(appearance)
+        # roi align
+        # 此处的roi_align_size是2，因此roi_align的输出的形状是(num_node, num_feat_map, 2, 2)
+        align_feat = CVOps.roi_align(cnn_feat, bounding_boxes, self.roi_align_size)
+        appearance_emb = self.appearance_fc(
+            align_feat.view(align_feat.shape[0], -1)
+        )
+        appearance_emb = appearance_emb.view(cnn_feat.shape[0], -1, appearance_emb.shape[-1])
+
+        content_emb = self.content_conv(content.permute(0, 1, 3, 2).squeeze(-1))
+
         for block in self.blocks:
-            geometry, appearance, content = block(geometry, appearance, content)
+            geometry_emb, appearance_emb, content_emb = block(geometry_emb, appearance_emb, content_emb)
 
         # fused geometry, appearance, content
-        emb = torch.cat([geometry, appearance, content], dim=-1)
+        emb = torch.cat([geometry_emb, appearance_emb, content_emb], dim=-1)
         # generate pairs of embeddings
         # 整体重复 nodes 遍，单个 node 重复 nodes 遍，再将两个拼接，因为一共是 nodes * nodes 个，正好单个重复的和整体的数量一样，拼接起来就可以得到一个node和其他所有node的pair
         emb_pairs = torch.cat(
@@ -169,8 +192,8 @@ class NCGM(nn.Module):
         emb_pairs = emb_pairs.view(emb_pairs.shape[0], -1, emb_pairs.shape[-1])
 
         # binary classification
-        cell_logits = self.cell_fc(emb_pairs)
-        row_logits = self.row_fc(emb_pairs)
-        col_logits = self.col_fc(emb_pairs)
+        cell_output = self.cell_fc(emb_pairs)
+        row_output = self.row_fc(emb_pairs)
+        col_output = self.col_fc(emb_pairs)
 
-        return cell_logits, row_logits, col_logits, emb_pairs
+        return cell_output, row_output, col_output, emb_pairs
