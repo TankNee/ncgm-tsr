@@ -19,9 +19,9 @@ class SciTSRDataset(Dataset):
         self.img_shape = tuple(
             [int(x) for x in args[f"{args_prefix}.img_shape"].split(",")]
         )
-        self.word2vec = gensim.models.KeyedVectors.load_word2vec_format(
-            args[f"{args_prefix}.word2vec.path"]
-        )
+        # self.word2vec = gensim.models.KeyedVectors.load_word2vec_format(
+        #     args[f"{args_prefix}.word2vec.path"]
+        # )
         logger.debug(f"Word2vec loaded from {args[f'{args_prefix}.word2vec.path']}")
         self.args = args
         self.mode = mode
@@ -80,8 +80,8 @@ class SciTSRDataset(Dataset):
 
         return (
             img_scale,
-            scaled_img_height,
-            scaled_img_width,
+            padding_left,
+            padding_top,
             transforms.Compose(img_transforms),
         )
 
@@ -95,13 +95,13 @@ class SciTSRDataset(Dataset):
         img = Image.open(path).convert("RGB")
         (
             img_scale,
-            scaled_img_height,
-            scaled_img_width,
+            padding_left,
+            padding_top,
             img_transform,
         ) = self.get_transform(img.height, img.width)
         img = img_transform(img)
 
-        return img, img_scale
+        return img, img_scale, padding_left, padding_top
 
     def __len__(self):
         return len(self.data_list)
@@ -112,7 +112,7 @@ class SciTSRDataset(Dataset):
         Args:
             idx (int): index of item
         Returns:
-            geometry (list): geometry of text segment bounding box. N * (x,y,w,h)
+            geometry (list): geometry of text segment bounding box. N * (x,y,w,h), 注意此处的x,y是相对于整个表格的，坐标轴的原点在左上角
             appearance (torch.Tensor): appearance of whole table image. N * (C,H,W)
             content (list): content of text segment bounding box.   N * (str)
             bounding_box (list): bounding box of text segment bounding box. N * (x1,y1,x2,y2)
@@ -129,10 +129,17 @@ class SciTSRDataset(Dataset):
             _, chunk_path, _, image_path, _, structure_path = item
         else:
             _, chunk_path, _, image_path, structure_path = item
+
+        # whole table image
+        appearance, scale, padding_left, padding_top = self.load_img(
+            os.path.join(self.path, self.mode, image_path)
+        )
+
         # text segment bounding box
         with open(os.path.join(self.path, self.mode, chunk_path), "r") as f:
             chunk = json.load(f)["chunks"]
         for cell in chunk:
+            # 注意，此处坐标的顺序与raw数据中的顺序不同！！！
             x_min, x_max, y_min, y_max = cell["pos"]
             text = cell["text"]
             content.append(text)
@@ -144,12 +151,12 @@ class SciTSRDataset(Dataset):
                     y_max - y_min,
                 ]
             )
-            bounding_box.append([x_min, y_min, x_max, y_max])
+            x_min = int(x_min * scale + padding_left)
+            y_min = int(y_min * scale + padding_top)
+            x_max = int(x_max * scale + padding_left)
+            y_max = int(y_max * scale + padding_top)
+            bounding_box.append([x_min, x_max, y_min, y_max])
 
-        # whole table image
-        appearance, scale = self.load_img(
-            os.path.join(self.path, self.mode, image_path)
-        )
 
         # structure label
         with open(os.path.join(self.path, self.mode, structure_path), "r") as f:
@@ -160,4 +167,4 @@ class SciTSRDataset(Dataset):
         # SciTSR 的评估方法 https://github.com/Academic-Hammer/SciTSR/blob/master/examples/eval.py
         # 这个数据集的标签是评估 Logical Relation
 
-        return geometry, appearance, content, bounding_box, structure, scale
+        return geometry, appearance, content, bounding_box, structure
