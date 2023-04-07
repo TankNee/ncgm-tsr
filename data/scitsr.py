@@ -139,7 +139,6 @@ class SciTSRDataset(Dataset):
         with open(os.path.join(self.path, self.mode, chunk_path), "r") as f:
             chunk = json.load(f)["chunks"]
         for cell in chunk:
-            # 注意，此处坐标的顺序与raw数据中的顺序不同！！！
             x_min, x_max, y_min, y_max = cell["pos"]
             text = cell["text"]
             content.append(text)
@@ -151,10 +150,10 @@ class SciTSRDataset(Dataset):
                     y_max - y_min,
                 ]
             )
-            x_min = int(x_min * scale + padding_left)
-            y_min = int(y_min * scale + padding_top)
-            x_max = int(x_max * scale + padding_left)
-            y_max = int(y_max * scale + padding_top)
+            x_min = x_min * scale + padding_left
+            y_min = y_min * scale + padding_top
+            x_max = x_max * scale + padding_left
+            y_max = y_max * scale + padding_top
             bounding_box.append([x_min, x_max, y_min, y_max])
 
 
@@ -167,4 +166,21 @@ class SciTSRDataset(Dataset):
         # SciTSR 的评估方法 https://github.com/Academic-Hammer/SciTSR/blob/master/examples/eval.py
         # 这个数据集的标签是评估 Logical Relation
 
+        return geometry, appearance, content, bounding_box, structure
+
+    @staticmethod
+    def collate_fn(batch):
+        """Collate batch data
+
+        Args:
+            batch (list): batch data
+        Returns:
+            geometry (list): geometry of text segment bounding box. N * (x,y,w,h)
+            appearance (torch.Tensor): appearance of whole table image. N * (C,H,W)
+            content (list): content of text segment bounding box.   N * (str)
+            bounding_box (list): bounding box of text segment bounding box. N * (x1,y1,x2,y2)
+            structure (list): structure label of table. N
+            scale (float): scale of image. 1
+        """
+        geometry, appearance, content, bounding_box, structure = zip(*batch)
         return geometry, appearance, content, bounding_box, structure
