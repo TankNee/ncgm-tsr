@@ -11,5 +11,5 @@ def load(args: Config):
     args_prefix = f"{args['mode']}"
     ncgm_model = NCGM(args)
     criterion = NCGMLoss(args)
-    optimizer = torch.optim.Adam(ncgm_model.parameters(), lr=args[f"{args_prefix}.lr"])
+    optimizer = torch.optim.Adam(ncgm_model.parameters(), lr=args[f"{args_prefix}.learning_rate"])
     return ncgm_model, criterion, optimizer

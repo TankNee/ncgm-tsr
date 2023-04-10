@@ -7,8 +7,13 @@ from model.cmha import CompressedMultiHeadAttention
 class EgoContextExtractor(nn.Module):
     def __init__(self, args: Config, **kwargs):
         super(EgoContextExtractor, self).__init__(**kwargs)
+        mode = args["mode"]
+        num_block_padding = args[f"{mode}.dataset.num_block_padding"]
+        num_hidden = args[f"{mode}.model.ncgm.num_hidden"]
         self.cmha = CompressedMultiHeadAttention(args)
-
+        self.fc1 = nn.Linear(num_hidden, num_hidden)
+        self.fc2 = nn.Linear(num_hidden, num_hidden)
+        self.relu = nn.ReLU()
 
     def build_graph(self, X: torch.tensor):
         """Build Graph
@@ -18,9 +23,15 @@ class EgoContextExtractor(nn.Module):
         Args:
             X: input tensor, shape: (batch_size, num_nodes, num_hidden)
         """
-        # kronecker product
-
-        pass
+        # xj - xi
+        xj_minus_xi = (X.unsqueeze(2) - X.unsqueeze(1)).view(X.shape[0], -1, X.shape[2])
+        xi = X.unsqueeze(1).repeat(1, X.shape[1], 1, 1).view(X.shape[0], -1, X.shape[2])
+        # fc(xj - xi) and fc(xi)
+        xj_minus_xi = self.fc1(xj_minus_xi)
+        xi = self.fc2(xi)
+        edge_feat = self.relu(xj_minus_xi + xi) # shape: (batch_size, num_nodes * num_nodes, num_hidden)
+        
+        return edge_feat
 
     def forward(self, X: torch.tensor):
         """Forward

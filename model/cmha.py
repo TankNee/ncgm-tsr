@@ -1,5 +1,4 @@
 from logger import logger
-import torch
 from torch import nn
 from config import Config
 
@@ -16,11 +15,11 @@ class AddNorm(nn.Module):
         output tensor
     """
 
-    @logger.catch
     def __init__(self, args: Config, **kwargs):
         super(AddNorm, self).__init__(**kwargs)
         args_prefix = f'{args["mode"]}.model.addnorm'
-        norm_shape = tuple([int(x) for x in args[f"{args_prefix}.norm_shape"].split(',')])
+        # norm_shape = tuple([int(x) for x in args[f"{args_prefix}.norm_shape"].split(',')])
+        norm_shape = args[f"{args_prefix}.norm_shape"]
         self.dropout = nn.Dropout(args[f"{args_prefix}.dropout"])
         # noinspection PyTypeChecker
         self.ln = nn.LayerNorm(norm_shape)
@@ -62,6 +61,7 @@ class CompressedMultiHeadAttention(nn.Module):
         self.mha = nn.MultiheadAttention(
             embed_dim=args[f"{args_prefix}.mha.num_hidden_emb"],
             num_heads=args[f"{args_prefix}.mha.num_heads"],
+            batch_first=True,
         )
         # TODO: Memory Compression
         # element-wise addition and layer normalization

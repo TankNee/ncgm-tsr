@@ -40,13 +40,19 @@ class CrossContextSynthesizer(nn.Module):
             content_output: shape: (batch_size, num_nodes, num_hidden)
         """
         geometry_output = self.cmha1(
-            geometry, torch.cat([appearance_ece, content_ece], dim=0)
+            geometry,
+            torch.cat([appearance_ece, content_ece], dim=1),
+            torch.cat([appearance_ece, content_ece], dim=1),
         )
         appearance_output = self.cmha2(
-            appearance, torch.cat([geometry_ece, content_ece], dim=0)
+            appearance,
+            torch.cat([geometry_ece, content_ece], dim=1),
+            torch.cat([geometry_ece, content_ece], dim=1),
         )
         content_output = self.cmha3(
-            content, torch.cat([geometry_ece, appearance_ece], dim=0)
+            content,
+            torch.cat([geometry_ece, appearance_ece], dim=1),
+            torch.cat([geometry_ece, appearance_ece], dim=1),
         )
 
         return geometry_output, appearance_output, content_output

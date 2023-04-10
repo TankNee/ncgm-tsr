@@ -26,6 +26,6 @@ class TableDataLoader(object):
         dataset = self.dataset_map[self.name](self.args)
         logger.info(f"Dataset {self.name} loaded")
         dataloader = DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=self.mode == "train"
+            dataset, batch_size=self.batch_size, shuffle=self.mode == "train", collate_fn=dataset.collate_fn
         )
         return dataloader

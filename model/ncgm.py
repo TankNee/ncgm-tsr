@@ -61,7 +61,7 @@ class NCGM(nn.Module):
     def __init__(self, args: Config, **kwargs):
         super(NCGM, self).__init__(**kwargs)
         args_prefix = f"{args['mode']}.model.ncgm"
-        num_hidden_concat = args[f"{args_prefix}.num_hidden"] * 3
+        num_hidden_concat = args[f"{args_prefix}.num_hidden"] * 3 * 2
         num_hidden_fc = args[f"{args_prefix}.num_hidden_fc"]
         num_backbone_filter_size = args[f"{args_prefix}.num_backbone_filter_size"]
         num_backbone_filter_out_channel = args[
@@ -85,7 +85,9 @@ class NCGM(nn.Module):
         )
 
         # Extract appearance features
-        self.resnet18 = CVModels.resnet18(pretrained=True)
+        self.resnet18 = CVModels.resnet18(
+            weights=CVModels.ResNet18_Weights.IMAGENET1K_V1
+        )
         self.backbone_cnn = nn.Sequential(
             self.resnet18.conv1,
             self.resnet18.bn1,
@@ -121,7 +123,7 @@ class NCGM(nn.Module):
         self.appearance_fc = nn.Sequential(
             # 此处Linear的第一个参数是输入的维度，输入是roi_align的输出，该输出的形状是(num_node, out_channel, 2, 2)
             nn.Linear(
-                self.roi_align_size ** 2 * num_backbone_filter_out_channel,
+                self.roi_align_size**2 * num_backbone_filter_out_channel,
                 args[f"{args_prefix}.num_hidden"],
             ),
             nn.ReLU(),
@@ -138,17 +140,17 @@ class NCGM(nn.Module):
         self.cell_fc = nn.Sequential(
             nn.Linear(num_hidden_concat, num_hidden_fc),
             nn.ReLU(),
-            nn.Linear(num_hidden_fc, 2)
+            nn.Linear(num_hidden_fc, 2),
         )
         self.row_fc = nn.Sequential(
             nn.Linear(num_hidden_concat, num_hidden_fc),
             nn.ReLU(),
-            nn.Linear(num_hidden_fc, 2)
+            nn.Linear(num_hidden_fc, 2),
         )
         self.col_fc = nn.Sequential(
             nn.Linear(num_hidden_concat, num_hidden_fc),
             nn.ReLU(),
-            nn.Linear(num_hidden_fc, 2)
+            nn.Linear(num_hidden_fc, 2),
         )
 
     def forward(self, geometry, appearance, content, bounding_boxes):
@@ -167,15 +169,39 @@ class NCGM(nn.Module):
         # roi align
         # 此处的roi_align_size是2，因此roi_align的输出的形状是(num_node, num_feat_map, 2, 2)
         align_feat = CVOps.roi_align(cnn_feat, bounding_boxes, self.roi_align_size)
-        appearance_emb = self.appearance_fc(
-            align_feat.view(align_feat.shape[0], -1)
+        appearance_emb = self.appearance_fc(align_feat.view(align_feat.shape[0], -1))
+        appearance_emb = appearance_emb.view(
+            cnn_feat.shape[0], -1, appearance_emb.shape[-1]
         )
-        appearance_emb = appearance_emb.view(cnn_feat.shape[0], -1, appearance_emb.shape[-1])
 
-        content_emb = self.content_conv(content.permute(0, 1, 3, 2).squeeze(-1))
+        content_conv_input = content.view(
+            content.shape[0] * content.shape[1], content.shape[3], content.shape[2], 1
+        )
+        content_emb = self.content_conv(content_conv_input)
+        content_emb = content_emb.view(content.shape[0], content.shape[1], -1)
 
+        geometry_ece = geometry_emb
+        geometry_ccs = geometry_emb
+        appearance_ece = appearance_emb
+        appearance_ccs = appearance_emb
+        content_ece = content_emb
+        content_ccs = content_emb
         for block in self.blocks:
-            geometry_emb, appearance_emb, content_emb = block(geometry_emb, appearance_emb, content_emb)
+            (
+                geometry_ece,
+                appearance_ece,
+                content_ece,
+                geometry_ccs,
+                appearance_ccs,
+                content_ccs,
+            ) = block(
+                geometry_ece,
+                appearance_ece,
+                content_ece,
+                geometry_ccs,
+                appearance_ccs,
+                content_ccs,
+            )
 
         # fused geometry, appearance, content
         emb = torch.cat([geometry_emb, appearance_emb, content_emb], dim=-1)

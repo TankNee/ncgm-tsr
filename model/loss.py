@@ -16,7 +16,7 @@ class ContrastiveLoss(nn.Module):
         formulation: $\mathcal{L}_{\text {con }}=\left\|\mathbf{e}_{(a)}-\mathbf{e}_{(b)}^{+}\right\|_2^2+\max \left\{0, \alpha-\left\|\mathbf{e}_{(a)}-\mathbf{e}_{(b)}^{-}\right\|_2^2\right\}$
 
         Args:
-            X: shape: (batch_size, num_node * num_node, num_hidden * 2), embedding pairs
+            X: shape: (batch_size, num_node * num_node, num_hidden * 3 * 2), embedding pairs
             y: shape: (batch_size, num_node, num_node), labels, adjacency matrix
         """
         if X.shape[2] % 2 != 0:
@@ -30,8 +30,8 @@ class ContrastiveLoss(nn.Module):
         for i in range(X_split.shape[1]):
             idx_a, idx_b = i // num_node, i % num_node
             adj = y[:, idx_a, idx_b]
-            pos_batch_idx = adj == 1
-            neg_batch_idx = adj == 0
+            pos_batch_idx = adj == 1    # 正样本的索引
+            neg_batch_idx = adj == 0    # 负样本的索引
             loss[pos_batch_idx, i] = torch.pow(
                 X_split[pos_batch_idx, i, 0, :] - X_split[pos_batch_idx, i, 1, :], 2
             ).sum(dim=-1)
@@ -82,7 +82,7 @@ class MixLoss(nn.Module):
 
         Args:
             logits: shape: (batch_size, num_node * num_node, 2)
-            X: shape: (batch_size, num_node * num_node, num_hidden * 2)
+            X: shape: (batch_size, num_node * num_node, num_hidden * 3 * 2)
             y: shape: (batch_size, num_node, num_node)
         """
         con_loss = self.con_loss(X, y)
@@ -112,7 +112,7 @@ class NCGMLoss(nn.Module):
             cell_logits: shape: (batch_size, num_node, num_node, 2)
             row_logits: shape: (batch_size, num_node, num_node, 2)
             col_logits: shape: (batch_size, num_node, num_node, 2)
-            X: shape: (batch_size, num_node * num_node, num_hidden * 2)
+            X: shape: (batch_size, num_node * num_node, num_hidden * 3 * 2)
             y: shape: (batch_size, num_node, num_node)
         """
         cell_loss = self.cell_loss(cell_logits, X, y)

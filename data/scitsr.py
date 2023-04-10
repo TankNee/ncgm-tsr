@@ -1,7 +1,8 @@
 import gensim
-from torch import nn
+import torch
 import os
 import json
+import numpy as np
 from logger import logger
 import pandas as pd
 from config import Config
@@ -16,12 +17,14 @@ class SciTSRDataset(Dataset):
         args_prefix = f"{mode}.dataset"
         self.name = args[f"{args_prefix}.name"]
         self.path = args[f"{args_prefix}.path"]
+        self.num_content_length = args[f"{mode}.model.ncgm.num_content_length"]
+        self.num_block_padding = args[f"{args_prefix}.num_block_padding"]
         self.img_shape = tuple(
             [int(x) for x in args[f"{args_prefix}.img_shape"].split(",")]
         )
-        # self.word2vec = gensim.models.KeyedVectors.load_word2vec_format(
-        #     args[f"{args_prefix}.word2vec.path"]
-        # )
+        self.word2vec = gensim.models.KeyedVectors.load_word2vec_format(
+            args[f"{args_prefix}.word2vec.path"], binary=True
+        )
         logger.debug(f"Word2vec loaded from {args[f'{args_prefix}.word2vec.path']}")
         self.args = args
         self.mode = mode
@@ -90,7 +93,7 @@ class SciTSRDataset(Dataset):
         Args:
             path (str): path to image
         Returns:
-            torch.Tensor: image tensor with shape (H, W, C)
+            torch.Tensor: image tensor with shape (C, H, W)
         """
         img = Image.open(path).convert("RGB")
         (
@@ -102,6 +105,41 @@ class SciTSRDataset(Dataset):
         img = img_transform(img)
 
         return img, img_scale, padding_left, padding_top
+
+    def get_text_embedding(self, text):
+        """Get word embedding of text
+        Args:
+            text (str): text
+        Returns:
+            list[str]: word embedding of text
+        """
+        text = text.lower()
+        text = text.split(" ")
+        text_embedding = []
+        for word in text:
+            if word in self.word2vec.key_to_index:
+                text_embedding.append(self.word2vec[word])
+            else:
+                text_embedding.append(self.word2vec["unk"])
+        if len(text_embedding) > self.num_content_length:
+            text_embedding = text_embedding[: self.num_content_length]
+        else:
+            # 是直接用pad向量，还是专门置顶一个新的向量？
+            text_embedding += [self.word2vec["pad"]] * (
+                self.num_content_length - len(text_embedding)
+            )
+
+        return text_embedding
+
+    def get_pad_block(self):
+        """Get pad block
+        Returns:
+            dict: pad block
+        """
+        return {
+            "pos": [0, 0, 0, 0],
+            "text": "",
+        }
 
     def __len__(self):
         return len(self.data_list)
@@ -138,10 +176,15 @@ class SciTSRDataset(Dataset):
         # text segment bounding box
         with open(os.path.join(self.path, self.mode, chunk_path), "r") as f:
             chunk = json.load(f)["chunks"]
+        # padding chunk to a fixed length
+        chunk = (
+            chunk[: self.num_block_padding]
+            if len(chunk) > self.num_block_padding
+            else chunk + [self.get_pad_block()] * (self.num_block_padding - len(chunk))
+        )
         for cell in chunk:
             x_min, x_max, y_min, y_max = cell["pos"]
-            text = cell["text"]
-            content.append(text)
+            content.append(self.get_text_embedding(cell["text"]))
             geometry.append(
                 [
                     (x_min + x_max) / 2,  # center x of bounding box
@@ -156,7 +199,6 @@ class SciTSRDataset(Dataset):
             y_max = y_max * scale + padding_top
             bounding_box.append([x_min, x_max, y_min, y_max])
 
-
         # structure label
         with open(os.path.join(self.path, self.mode, structure_path), "r") as f:
             structure = json.load(f)["cells"]
@@ -165,6 +207,11 @@ class SciTSRDataset(Dataset):
         structure = sorted(structure, key=lambda x: x["id"])
         # SciTSR 的评估方法 https://github.com/Academic-Hammer/SciTSR/blob/master/examples/eval.py
         # 这个数据集的标签是评估 Logical Relation
+
+        # to tensor
+        geometry = torch.tensor(geometry)
+        content = torch.tensor(np.array(content))
+        bounding_box = torch.tensor(bounding_box)
 
         return geometry, appearance, content, bounding_box, structure
 
@@ -183,4 +230,10 @@ class SciTSRDataset(Dataset):
             scale (float): scale of image. 1
         """
         geometry, appearance, content, bounding_box, structure = zip(*batch)
+
+        geometry = torch.stack(geometry, dim=0)
+        appearance = torch.stack(appearance, dim=0)
+        content = torch.stack(content, dim=0)
+        # bounding_box = torch.stack(bounding_box, dim=0)
+
         return geometry, appearance, content, bounding_box, structure
