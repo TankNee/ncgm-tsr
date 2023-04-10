@@ -6,7 +6,7 @@ import numpy as np
 from logger import logger
 import pandas as pd
 from config import Config
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
 
@@ -141,6 +141,43 @@ class SciTSRDataset(Dataset):
             "text": "",
         }
 
+    def get_adj_matrix(self, rel_path, structure):
+        """Get adjacency matrix of table
+        Args:
+            rel_path (str): table cell relation file path
+        Returns:
+            torch.Tensor: adjacency matrix of table
+        """
+        row_adj_matrix = torch.zeros(self.num_block_padding, self.num_block_padding)
+        col_adj_matrix = torch.zeros(self.num_block_padding, self.num_block_padding)
+        # 两个单元格是否是一个合并单元格的子单元格
+        cell_adj_matrix = torch.zeros(self.num_block_padding, self.num_block_padding)
+
+        with open(os.path.join(self.path, self.mode, rel_path), "r") as f:
+            rel = f.read().splitlines()
+        rel = [r.split("\t") for r in rel]
+
+        for r in rel:
+            chunk_id1, chunk_id2 = int(r[0]), int(r[1])
+            rel_id, num_blank = int(r[2].split(":")[0]), int(r[2].split(":")[1])
+            # 1 and 2 represents horizontal and vertical, respectively
+            # https://github.com/Academic-Hammer/SciTSR#relations
+            # 只要相邻，那么邻接矩阵中对应的值都是1
+            if rel_id == 1:
+                if num_blank == 0:
+                    row_adj_matrix[chunk_id1, chunk_id2] = 1
+                    row_adj_matrix[chunk_id2, chunk_id1] = 1
+            elif rel_id == 2:
+                if num_blank == 0:
+                    col_adj_matrix[chunk_id1, chunk_id2] = 1
+                    col_adj_matrix[chunk_id2, chunk_id1] = 1
+
+        # 两个单元格是否是一个合并单元格的子单元格
+        for i in range(len(structure)):
+            cell_adj_matrix[i, i] = 1
+
+        return row_adj_matrix, col_adj_matrix, cell_adj_matrix
+
     def __len__(self):
         return len(self.data_list)
 
@@ -164,7 +201,7 @@ class SciTSRDataset(Dataset):
         bounding_box = []  # bounding box of text segment bounding box. (x1,y1,x2,y2)
 
         if self.mode == "train":
-            _, chunk_path, _, image_path, _, structure_path = item
+            _, chunk_path, _, image_path, rel_path, structure_path = item
         else:
             _, chunk_path, _, image_path, structure_path = item
 
@@ -203,6 +240,9 @@ class SciTSRDataset(Dataset):
         with open(os.path.join(self.path, self.mode, structure_path), "r") as f:
             structure = json.load(f)["cells"]
 
+        row_adj_matrix, col_adj_matrix, cell_adj_matrix = self.get_adj_matrix(
+            rel_path, structure
+        )
         # sort cell of structure by id
         structure = sorted(structure, key=lambda x: x["id"])
         # SciTSR 的评估方法 https://github.com/Academic-Hammer/SciTSR/blob/master/examples/eval.py
@@ -213,27 +253,58 @@ class SciTSRDataset(Dataset):
         content = torch.tensor(np.array(content))
         bounding_box = torch.tensor(bounding_box)
 
-        return geometry, appearance, content, bounding_box, structure
+        return (
+            geometry,
+            appearance,
+            content,
+            bounding_box,
+            row_adj_matrix,
+            col_adj_matrix,
+            cell_adj_matrix,
+            structure,
+        )
 
     @staticmethod
     def collate_fn(batch):
         """Collate batch data
-
         Args:
             batch (list): batch data
         Returns:
-            geometry (list): geometry of text segment bounding box. N * (x,y,w,h)
+            geometry (torch.Tensor): geometry of text segment bounding box. N * (x,y,w,h)
             appearance (torch.Tensor): appearance of whole table image. N * (C,H,W)
-            content (list): content of text segment bounding box.   N * (str)
-            bounding_box (list): bounding box of text segment bounding box. N * (x1,y1,x2,y2)
+            content (torch.Tensor): content of text segment bounding box.   N * (str)
+            bounding_box (torch.Tensor): bounding box of text segment bounding box. N * (x1,y1,x2,y2)
+            row_adj_matrix (torch.Tensor): row adjacency matrix. N * (num_node, num_node)
+            col_adj_matrix (torch.Tensor): column adjacency matrix. N * (num_node, num_node)
+            cell_adj_matrix (torch.Tensor): cell adjacency matrix. N * (num_node, num_node)
             structure (list): structure label of table. N
-            scale (float): scale of image. 1
         """
-        geometry, appearance, content, bounding_box, structure = zip(*batch)
+        (
+            geometry,
+            appearance,
+            content,
+            bounding_box,
+            row_adj_matrix,
+            col_adj_matrix,
+            cell_adj_matrix,
+            structure,
+        ) = zip(*batch)
 
         geometry = torch.stack(geometry, dim=0)
         appearance = torch.stack(appearance, dim=0)
         content = torch.stack(content, dim=0)
         # bounding_box = torch.stack(bounding_box, dim=0)
+        row_adj_matrix = torch.stack(row_adj_matrix, dim=0)
+        col_adj_matrix = torch.stack(col_adj_matrix, dim=0)
+        cell_adj_matrix = torch.stack(cell_adj_matrix, dim=0)
 
-        return geometry, appearance, content, bounding_box, structure
+        return (
+            geometry,
+            appearance,
+            content,
+            bounding_box,
+            row_adj_matrix,
+            col_adj_matrix,
+            cell_adj_matrix,
+            structure,
+        )
