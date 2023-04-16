@@ -27,22 +27,36 @@ class ContrastiveLoss(nn.Module):
             raise ValueError("X.shape[1] must be a square number")
         loss = torch.zeros((X.shape[0], X.shape[1]), device=X.device)
         # 用torch中的函数实现下面这段代码的逻辑而不是for循环
-        for i in range(X_split.shape[1]):
-            idx_a, idx_b = i // num_node, i % num_node
-            adj = y[:, idx_a, idx_b]
-            pos_batch_idx = adj == 1    # 正样本的索引
-            neg_batch_idx = adj == 0    # 负样本的索引
-            loss[pos_batch_idx, i] = torch.pow(
-                X_split[pos_batch_idx, i, 0, :] - X_split[pos_batch_idx, i, 1, :], 2
-            ).sum(dim=-1)
-            loss[neg_batch_idx, i] = torch.max(
-                self.alpha_margin
-                - torch.pow(
-                    X_split[neg_batch_idx, i, 0, :] - X_split[neg_batch_idx, i, 1, :], 2
-                ).sum(dim=-1),
-                0,
-            )
+        # for i in range(X_split.shape[1]):
+        #     idx_a, idx_b = i // num_node, i % num_node
+        #     adj = y[:, idx_a, idx_b]
+        #     pos_batch_idx = adj == 1    # 正样本的索引
+        #     neg_batch_idx = adj == 0    # 负样本的索引
+        #     if pos_batch_idx.sum() != 0:
+        #         loss[pos_batch_idx, i] = torch.pow(
+        #             X_split[pos_batch_idx, i, 0, :] - X_split[pos_batch_idx, i, 1, :], 2
+        #         ).sum(dim=-1)
+        #     if neg_batch_idx.sum() != 0:
+        #         neg_loss = self.alpha_margin - torch.pow(X_split[neg_batch_idx, i, 0, :] - X_split[neg_batch_idx, i, 1, :], 2).sum(dim=-1)
+        #         # 将loss中小于0的值置为0
+        #         neg_loss = torch.where(neg_loss > 0, neg_loss, torch.zeros_like(neg_loss))
+        #         loss[neg_batch_idx, i] = neg_loss
 
+        y = y.view(-1, 1) # shape: (batch_size * num_node * num_node, 1)
+        X_split = X_split.view(-1, 2, X_split.shape[-1]) # shape: (batch_size * num_node * num_node, 2, num_hidden * 3 * 2)
+        distance = torch.pow(X_split[:, 0, :] - X_split[:, 1, :], 2).sum(dim=-1) # shape: (batch_size * num_node * num_node, )
+        # y和loss_part1的对应项相乘，得到正样本的loss
+        loss_part1 = distance * y.squeeze(dim=-1)
+        # 1-y和loss_part1的对应项相乘，得到负样本的loss
+        loss_part2 = (1 - y.squeeze(dim=-1)) * distance
+        # 将负样本的loss中小于0的值置为0
+        loss_part2 = torch.where(loss_part2 > 0, loss_part2, torch.zeros_like(loss_part2))
+        # 将正样本和负样本的loss相加
+        loss = loss_part1 + loss_part2
+        # 将loss的shape变为(batch_size, num_node * num_node)
+        loss = loss.view(X.shape[0], X.shape[1])
+        # 将loss的shape变为(batch_size, )
+        loss = loss.sum(dim=-1)
         return loss
 
 
@@ -59,7 +73,8 @@ class ClassificationLoss(nn.Module):
             y: shape: (batch_size, num_node, num_node) adjacency matrix
         """
         # 根据邻接矩阵构建新的标签
-        y = y.view(y.shape[0], -1)
+        y = y.view(y.shape[0], -1).to(torch.long)
+        X = X.view(X.shape[0], 2, -1)
         # 使用交叉熵损失函数
         return F.cross_entropy(X, y)
 
@@ -104,7 +119,9 @@ class NCGMLoss(nn.Module):
         row_logits: torch.Tensor,
         col_logits: torch.Tensor,
         X: torch.Tensor,
-        y: torch.Tensor,
+        cell_y: torch.Tensor,
+        row_y: torch.Tensor,
+        col_y: torch.Tensor,
     ):
         """Forward
 
@@ -115,7 +132,7 @@ class NCGMLoss(nn.Module):
             X: shape: (batch_size, num_node * num_node, num_hidden * 3 * 2)
             y: shape: (batch_size, num_node, num_node)
         """
-        cell_loss = self.cell_loss(cell_logits, X, y)
-        row_loss = self.row_loss(row_logits, X, y)
-        col_loss = self.col_loss(col_logits, X, y)
+        cell_loss = self.cell_loss(cell_logits, X, cell_y)
+        row_loss = self.row_loss(row_logits, X, row_y)
+        col_loss = self.col_loss(col_logits, X, col_y)
         return cell_loss + row_loss + col_loss

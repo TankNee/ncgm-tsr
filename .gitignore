@@ -6,3 +6,4 @@ logs/*.log
 logs/*.zip
 test.ipynb
 .idea
+gpt*

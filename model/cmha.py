@@ -57,21 +57,36 @@ class CompressedMultiHeadAttention(nn.Module):
     def __init__(self, args: Config, **kwargs):
         super(CompressedMultiHeadAttention, self).__init__(**kwargs)
         args_prefix = f'{args["mode"]}.model.cmha'
+        self.mc_eps = args[f"{args_prefix}.mc_epsilon"]
+        self.mc_emb = int(args[f"{args_prefix}.num_hidden_emb"] / self.mc_eps)
         # multi head attention
         self.mha = nn.MultiheadAttention(
-            embed_dim=args[f"{args_prefix}.mha.num_hidden_emb"],
-            num_heads=args[f"{args_prefix}.mha.num_heads"],
+            embed_dim=args[f"{args_prefix}.num_hidden_emb"],
+            num_heads=args[f"{args_prefix}.num_heads"],
             batch_first=True,
+            kdim=self.mc_emb,
+            vdim=self.mc_emb,
         )
         # TODO: Memory Compression
         # element-wise addition and layer normalization
         self.addnorm1 = AddNorm(args)
         self.addnorm2 = AddNorm(args)
+        self.mc_ln = nn.LayerNorm(self.mc_emb)
 
         # FFN: feed-forward network
         self.ffn = PositionWiseFFN(args)
 
+    def memory_compress(self, X):
+        # make X(M*N) to X(eM*N/e)
+
+        X = X.reshape(X.shape[0], -1, self.mc_emb)
+        # layer normalization
+        X = self.mc_ln(X)
+        return X
+
     def forward(self, query, key, value):
+        key = self.memory_compress(key)
+        value = self.memory_compress(value)
         # multi head attention
         output1, _ = self.mha(query, key, value)
         # element-wise addition and layer normalization
