@@ -135,4 +135,6 @@ class NCGMLoss(nn.Module):
         cell_loss = self.cell_loss(cell_logits, X, cell_y)
         row_loss = self.row_loss(row_logits, X, row_y)
         col_loss = self.col_loss(col_logits, X, col_y)
-        return cell_loss + row_loss + col_loss
+        loss = cell_loss + row_loss + col_loss
+        loss = loss.mean()  # 要用mean吗？
+        return loss

@@ -28,7 +28,6 @@ class SciTSRDataset(Dataset):
         logger.debug(f"Word2vec loaded from {args[f'{args_prefix}.word2vec.path']}")
         self.args = args
         self.mode = mode
-        self.feat_map_scale = args[f"{args_prefix}.feat_map_scale"]
 
         if not os.path.exists(self.path):
             raise FileNotFoundError(f"Path {self.path} not found")
@@ -235,12 +234,12 @@ class SciTSRDataset(Dataset):
             y_min = y_min * scale + padding_top
             x_max = x_max * scale + padding_left
             y_max = y_max * scale + padding_top
-            x_min, x_max, y_min, y_max = (
-                x_min * self.feat_map_scale,
-                x_max * self.feat_map_scale,
-                y_min * self.feat_map_scale,
-                y_max * self.feat_map_scale,
-            )
+            # x_min, x_max, y_min, y_max = (
+            #     x_min * self.feat_map_scale,
+            #     x_max * self.feat_map_scale,
+            #     y_min * self.feat_map_scale,
+            #     y_max * self.feat_map_scale,
+            # ) we use space ratio parameter of roi_align function.
             # see roi_align document, bounding box should be (x1,y1,x2,y2)
             bounding_box.append([x_min, y_min, x_max, y_max])
 

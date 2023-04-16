@@ -1,5 +1,5 @@
 import torch
-from data import TableDataLoader
+from data.load import TableDataLoader
 from load import load
 from logger import logger
 from config import Config
@@ -19,10 +19,22 @@ def train(args: Config):
 
     try:
         logger.info("Training started")
-        pbar = tqdm(range(args[f"{mode}.num_epochs"]))
+        pbar = tqdm(range(args[f"{mode}.epoch"]))
         pbar.set_description("Epoch")
+        tr_dl = TableDataLoader(args, "train")
+        table_train_dl = tr_dl.get_dataloader()
+        dl_bar = tqdm(table_train_dl)
         for epoch in pbar:
             model.train()
+            pbar.set_description(f"Epoch {epoch}")
+            for batch in dl_bar:
+                geometry, appearance, content, bounding_box, row_adj_matrix, col_adj_matrix, cell_adj_matrix, structure = batch
+                cell_output, row_output, col_output, emb_pairs = model(geometry, appearance, content, bounding_box)
+                loss = criterion(cell_output, row_output, col_output, emb_pairs, cell_adj_matrix, row_adj_matrix, col_adj_matrix)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                dl_bar.set_description(f"Loss: {loss.item()}")
 
     except Exception as e:
         logger.error("Training failed")
@@ -39,5 +51,5 @@ def test(args):
 
 if __name__ == '__main__':
     args = Config(config_path)
-    # train(args)
-    test(args)
+    train(args)
+    # test(args)

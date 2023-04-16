@@ -69,6 +69,7 @@ class NCGM(nn.Module):
         ]
         self.roi_align_size = args[f"{args_prefix}.roi_align_size"]
         self.num_block = args[f"{args_prefix}.num_block"]
+        self.feat_map_scale = args[f"{args['mode']}.dataset.feat_map_scale"]
 
         # Extract geometry features
         self.geometry_fc = nn.Sequential(
@@ -169,7 +170,12 @@ class NCGM(nn.Module):
         # roi align
         # 此处的roi_align_size是2，因此roi_align的输出的形状是(num_node, num_feat_map, 2, 2)
         # expect Batch size = 1?? 如何处理batch数据
-        align_feat = CVOps.roi_align(cnn_feat, bounding_boxes, self.roi_align_size)
+        align_feat = CVOps.roi_align(
+            cnn_feat,
+            bounding_boxes,
+            self.roi_align_size,
+            spatial_scale=self.feat_map_scale,
+        )
         appearance_emb = self.appearance_fc(align_feat.view(align_feat.shape[0], -1))
         appearance_emb = appearance_emb.view(
             cnn_feat.shape[0], -1, appearance_emb.shape[-1]
