@@ -5,12 +5,14 @@ from logger import logger
 from config import Config
 from tqdm import tqdm
 from model.utils import writer
+from transformers import get_linear_schedule_with_warmup
 
-config_path = './configs/ncgm.yaml'
+config_path = "./configs/ncgm.yaml"
+
 
 @logger.catch
 def train(args: Config):
-    mode = args['mode']
+    mode = args["mode"]
     logger.info(f"Loading model config from {config_path}")
     model, criterion, optimizer = load(args)
     gpu_id = args[f"{mode}.gpu"]
@@ -25,6 +27,17 @@ def train(args: Config):
         tr_dl = TableDataLoader(args, "train")
         table_train_dl = tr_dl.get_dataloader()
 
+        warmup_step = (
+            args[f"{mode}.warmup_proportion"]
+            * args[f"{mode}.epoch"]
+            * len(table_train_dl)
+        )
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=warmup_step,
+            num_training_steps=args[f"{mode}.epoch"] * len(table_train_dl),
+        )
+
         pbar = tqdm(range(args[f"{mode}.epoch"]))
         pbar.set_description("Epoch")
         dl_bar = tqdm(table_train_dl)
@@ -32,7 +45,16 @@ def train(args: Config):
             model.train()
             pbar.set_description(f"Epoch {epoch}")
             for batch in dl_bar:
-                geometry, appearance, content, bounding_box, row_adj_matrix, col_adj_matrix, cell_adj_matrix, structure = batch
+                (
+                    geometry,
+                    appearance,
+                    content,
+                    bounding_box,
+                    row_adj_matrix,
+                    col_adj_matrix,
+                    cell_adj_matrix,
+                    structure,
+                ) = batch
                 geometry = geometry.to(device)
                 appearance = appearance.to(device)
                 content = content.to(device)
@@ -41,14 +63,22 @@ def train(args: Config):
                 col_adj_matrix = col_adj_matrix.to(device)
                 cell_adj_matrix = cell_adj_matrix.to(device)
 
-                # 对邻接矩阵进行可视化
-                writer.add_graph(model, (geometry, appearance, content, bounding_box))
+                cell_output, row_output, col_output, emb_pairs = model(
+                    geometry, appearance, content, bounding_box
+                )
+                loss, loss_map = criterion(
+                    cell_output,
+                    row_output,
+                    col_output,
+                    emb_pairs,
+                    cell_adj_matrix,
+                    row_adj_matrix,
+                    col_adj_matrix,
+                )
 
-                cell_output, row_output, col_output, emb_pairs = model(geometry, appearance, content, bounding_box)
-                loss, loss_map = criterion(cell_output, row_output, col_output, emb_pairs, cell_adj_matrix, row_adj_matrix, col_adj_matrix)
-                
                 # write to tensorboard
-                writer.add_scalars('loss', loss_map, pbar.n * len(dl_bar) + dl_bar.n)
+                writer.add_scalars("loss", loss_map, pbar.n * len(dl_bar) + dl_bar.n)
+                scheduler.step()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -62,6 +92,7 @@ def train(args: Config):
         logger.exception(e)
         raise e
 
+
 @logger.catch
 def test(args):
     tr_dl = TableDataLoader(args, "train")
@@ -70,7 +101,8 @@ def test(args):
         print(batch)
         break
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     args = Config(config_path)
     train(args)
     # test(args)

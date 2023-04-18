@@ -84,8 +84,8 @@ class MixLoss(nn.Module):
         con_loss = self.con_loss(X, y)
         class_loss = self.class_loss(logits, y)
         loss_map = {
-            f"{self.name}_con_loss": con_loss.item(),
-            f"{self.name}_class_loss": class_loss.item(),
+            f"{self.name}_con": con_loss.item(),
+            f"{self.name}_class": class_loss.item(),
         }
         return self.lambda1 * con_loss + self.lambda2 * class_loss, loss_map
 

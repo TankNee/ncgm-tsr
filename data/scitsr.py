@@ -157,23 +157,20 @@ class SciTSRDataset(Dataset):
             rel = f.read().splitlines()
         rel = [r.split("\t") for r in rel]
 
-        for r in rel:
-            chunk_id1, chunk_id2 = int(r[0]), int(r[1])
-            rel_id, num_blank = int(r[2].split(":")[0]), int(r[2].split(":")[1])
-            # 当单元格个数超过阈值的时候就不做处理
-            if chunk_id1 >= self.num_block_padding or chunk_id2 >= self.num_block_padding:
+        for cell in structure:
+            if cell['id'] >= self.num_block_padding:
                 continue
-            # 1 and 2 represents horizontal and vertical, respectively
-            # https://github.com/Academic-Hammer/SciTSR#relations
-            # 只要相邻，那么邻接矩阵中对应的值都是1
-            if rel_id == 1:
-                if num_blank == 0:
-                    row_adj_matrix[chunk_id1, chunk_id2] = 1
-                    row_adj_matrix[chunk_id2, chunk_id1] = 1
-            elif rel_id == 2:
-                if num_blank == 0:
-                    col_adj_matrix[chunk_id1, chunk_id2] = 1
-                    col_adj_matrix[chunk_id2, chunk_id1] = 1
+            for other in structure:
+                if cell['id'] == other['id'] or other['id'] >= self.num_block_padding:
+                    continue
+                # 判断是否是同一行
+                if cell['start_row'] <= other['start_row'] and cell['end_row'] >= other['end_row']:
+                    row_adj_matrix[cell['id']][other['id']] = 1
+                    row_adj_matrix[other['id']][cell['id']] = 1
+                # 判断是否是同一列
+                if cell['start_col'] <= other['start_col'] and cell['end_col'] >= other['end_col']:
+                    col_adj_matrix[cell['id']][other['id']] = 1
+                    col_adj_matrix[other['id']][cell['id']] = 1
 
         # 两个单元格是否是一个合并单元格的子单元格
         for i in range(min(len(structure), self.num_block_padding)):
