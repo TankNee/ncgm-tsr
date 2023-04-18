@@ -160,6 +160,9 @@ class SciTSRDataset(Dataset):
         for r in rel:
             chunk_id1, chunk_id2 = int(r[0]), int(r[1])
             rel_id, num_blank = int(r[2].split(":")[0]), int(r[2].split(":")[1])
+            # 当单元格个数超过阈值的时候就不做处理
+            if chunk_id1 >= self.num_block_padding or chunk_id2 >= self.num_block_padding:
+                continue
             # 1 and 2 represents horizontal and vertical, respectively
             # https://github.com/Academic-Hammer/SciTSR#relations
             # 只要相邻，那么邻接矩阵中对应的值都是1
@@ -173,7 +176,7 @@ class SciTSRDataset(Dataset):
                     col_adj_matrix[chunk_id2, chunk_id1] = 1
 
         # 两个单元格是否是一个合并单元格的子单元格
-        for i in range(len(structure)):
+        for i in range(min(len(structure), self.num_block_padding)):
             cell_adj_matrix[i, i] = 1
 
         return row_adj_matrix, col_adj_matrix, cell_adj_matrix

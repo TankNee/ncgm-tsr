@@ -25,38 +25,17 @@ class ContrastiveLoss(nn.Module):
         num_node = int(X.shape[1] ** 0.5)
         if num_node**2 != X.shape[1]:
             raise ValueError("X.shape[1] must be a square number")
-        loss = torch.zeros((X.shape[0], X.shape[1]), device=X.device)
-        # 用torch中的函数实现下面这段代码的逻辑而不是for循环
-        # for i in range(X_split.shape[1]):
-        #     idx_a, idx_b = i // num_node, i % num_node
-        #     adj = y[:, idx_a, idx_b]
-        #     pos_batch_idx = adj == 1    # 正样本的索引
-        #     neg_batch_idx = adj == 0    # 负样本的索引
-        #     if pos_batch_idx.sum() != 0:
-        #         loss[pos_batch_idx, i] = torch.pow(
-        #             X_split[pos_batch_idx, i, 0, :] - X_split[pos_batch_idx, i, 1, :], 2
-        #         ).sum(dim=-1)
-        #     if neg_batch_idx.sum() != 0:
-        #         neg_loss = self.alpha_margin - torch.pow(X_split[neg_batch_idx, i, 0, :] - X_split[neg_batch_idx, i, 1, :], 2).sum(dim=-1)
-        #         # 将loss中小于0的值置为0
-        #         neg_loss = torch.where(neg_loss > 0, neg_loss, torch.zeros_like(neg_loss))
-        #         loss[neg_batch_idx, i] = neg_loss
 
-        y = y.view(-1, 1) # shape: (batch_size * num_node * num_node, 1)
-        X_split = X_split.view(-1, 2, X_split.shape[-1]) # shape: (batch_size * num_node * num_node, 2, num_hidden * 3 * 2)
-        distance = torch.pow(X_split[:, 0, :] - X_split[:, 1, :], 2).sum(dim=-1) # shape: (batch_size * num_node * num_node, )
-        # y和loss_part1的对应项相乘，得到正样本的loss
-        loss_part1 = distance * y.squeeze(dim=-1)
-        # 1-y和loss_part1的对应项相乘，得到负样本的loss
-        loss_part2 = (1 - y.squeeze(dim=-1)) * distance
-        # 将负样本的loss中小于0的值置为0
-        loss_part2 = torch.where(loss_part2 > 0, loss_part2, torch.zeros_like(loss_part2))
-        # 将正样本和负样本的loss相加
-        loss = loss_part1 + loss_part2
-        # 将loss的shape变为(batch_size, num_node * num_node)
-        loss = loss.view(X.shape[0], X.shape[1])
-        # 将loss的shape变为(batch_size, )
-        loss = loss.sum(dim=-1)
+        y = y.view(-1)  # shape: (batch_size * num_node * num_node, 1)
+        # shape: (batch_size * num_node * num_node, 2, num_hidden * 3 * 2)
+        X_split = X_split.view(-1, 2, X_split.shape[-1])
+        # distance = torch.pow(X_split[:, 0, :] - X_split[:, 1, :], 2).sum(dim=-1) # shape: (batch_size * num_node * num_node, )
+        # 二范数的平方
+        distance = F.pairwise_distance(X_split[:, 0, :], X_split[:, 1, :])
+
+        loss = (y)*torch.pow(distance, 2)\
+            + (1-y)*torch.clamp(self.alpha_margin-torch.pow(distance, 2), min=0.0)
+        loss = loss.mean()
         return loss
 
 
