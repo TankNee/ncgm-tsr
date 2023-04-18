@@ -4,6 +4,7 @@ from load import load
 from logger import logger
 from config import Config
 from tqdm import tqdm
+from model.utils import writer
 
 config_path = './configs/ncgm.yaml'
 
@@ -23,9 +24,10 @@ def train(args: Config):
         logger.info("Training started")
         tr_dl = TableDataLoader(args, "train")
         table_train_dl = tr_dl.get_dataloader()
-        dl_bar = tqdm(table_train_dl)
+
         pbar = tqdm(range(args[f"{mode}.epoch"]))
         pbar.set_description("Epoch")
+        dl_bar = tqdm(table_train_dl)
         for epoch in pbar:
             model.train()
             pbar.set_description(f"Epoch {epoch}")
@@ -39,13 +41,22 @@ def train(args: Config):
                 col_adj_matrix = col_adj_matrix.to(device)
                 cell_adj_matrix = cell_adj_matrix.to(device)
 
+                # 对邻接矩阵进行可视化
+                writer.add_graph(model, (geometry, appearance, content, bounding_box))
+
                 cell_output, row_output, col_output, emb_pairs = model(geometry, appearance, content, bounding_box)
-                loss = criterion(cell_output, row_output, col_output, emb_pairs, cell_adj_matrix, row_adj_matrix, col_adj_matrix)
+                loss, loss_map = criterion(cell_output, row_output, col_output, emb_pairs, cell_adj_matrix, row_adj_matrix, col_adj_matrix)
+                
+                # write to tensorboard
+                writer.add_scalars('loss', loss_map, pbar.n * len(dl_bar) + dl_bar.n)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 dl_bar.set_description(f"Loss: {loss.item()}")
+            writer.flush()
 
+        logger.info("Training finished")
+        writer.close()
     except Exception as e:
         logger.error("Training failed")
         logger.exception(e)

@@ -7,3 +7,4 @@ logs/*.zip
 test.ipynb
 .idea
 gpt*
+logs/tensorboard

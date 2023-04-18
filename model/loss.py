@@ -33,8 +33,9 @@ class ContrastiveLoss(nn.Module):
         # 二范数的平方
         distance = F.pairwise_distance(X_split[:, 0, :], X_split[:, 1, :])
 
-        loss = (y)*torch.pow(distance, 2)\
-            + (1-y)*torch.clamp(self.alpha_margin-torch.pow(distance, 2), min=0.0)
+        loss = (y) * torch.pow(distance, 2) + (1 - y) * torch.clamp(
+            self.alpha_margin - torch.pow(distance, 2), min=0.0
+        )
         loss = loss.mean()
         return loss
 
@@ -59,13 +60,14 @@ class ClassificationLoss(nn.Module):
 
 
 class MixLoss(nn.Module):
-    def __init__(self, args: Config, **kwargs):
+    def __init__(self, args: Config, name: str, **kwargs):
         super(MixLoss, self).__init__(**kwargs)
         args_prefix = f"{args['mode']}.model.loss"
         self.lambda1, self.lambda2 = (
             args[f"{args_prefix}.lambda1"],
             args[f"{args_prefix}.lambda2"],
         )
+        self.name = name
         self.con_loss = ContrastiveLoss(args)
         self.class_loss = ClassificationLoss(args)
 
@@ -81,16 +83,20 @@ class MixLoss(nn.Module):
         """
         con_loss = self.con_loss(X, y)
         class_loss = self.class_loss(logits, y)
-        return self.lambda1 * con_loss + self.lambda2 * class_loss
+        loss_map = {
+            f"{self.name}_con_loss": con_loss.item(),
+            f"{self.name}_class_loss": class_loss.item(),
+        }
+        return self.lambda1 * con_loss + self.lambda2 * class_loss, loss_map
 
 
 class NCGMLoss(nn.Module):
     def __init__(self, args: Config, **kwargs):
         super(NCGMLoss, self).__init__(**kwargs)
         args_prefix = f"{args['mode']}.model.loss"
-        self.cell_loss = MixLoss(args)
-        self.row_loss = MixLoss(args)
-        self.col_loss = MixLoss(args)
+        self.cell_loss = MixLoss(args, 'cell')
+        self.row_loss = MixLoss(args, 'row')
+        self.col_loss = MixLoss(args, 'col')
 
     def forward(
         self,
@@ -111,9 +117,16 @@ class NCGMLoss(nn.Module):
             X: shape: (batch_size, num_node * num_node, num_hidden * 3 * 2)
             y: shape: (batch_size, num_node, num_node)
         """
-        cell_loss = self.cell_loss(cell_logits, X, cell_y)
-        row_loss = self.row_loss(row_logits, X, row_y)
-        col_loss = self.col_loss(col_logits, X, col_y)
+        cell_loss, cell_loss_map = self.cell_loss(cell_logits, X, cell_y)
+        row_loss, row_loss_map = self.row_loss(row_logits, X, row_y)
+        col_loss, col_loss_map = self.col_loss(col_logits, X, col_y)
         loss = cell_loss + row_loss + col_loss
         loss = loss.mean()  # 要用mean吗？
-        return loss
+
+        # merge loss map
+        loss_map = {}
+        loss_map.update(cell_loss_map)
+        loss_map.update(row_loss_map)
+        loss_map.update(col_loss_map)
+
+        return loss, loss_map

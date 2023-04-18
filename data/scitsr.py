@@ -224,6 +224,10 @@ class SciTSRDataset(Dataset):
         )
         for idx, cell in enumerate(chunk):
             x_min, x_max, y_min, y_max = cell["pos"]
+            x_min = x_min * scale + padding_left
+            y_min = y_min * scale + padding_top
+            x_max = x_max * scale + padding_left
+            y_max = y_max * scale + padding_top
             content.append(self.get_text_embedding(cell["text"]))
             geometry.append(
                 [
@@ -233,17 +237,6 @@ class SciTSRDataset(Dataset):
                     y_max - y_min,
                 ]
             )
-            x_min = x_min * scale + padding_left
-            y_min = y_min * scale + padding_top
-            x_max = x_max * scale + padding_left
-            y_max = y_max * scale + padding_top
-            # x_min, x_max, y_min, y_max = (
-            #     x_min * self.feat_map_scale,
-            #     x_max * self.feat_map_scale,
-            #     y_min * self.feat_map_scale,
-            #     y_max * self.feat_map_scale,
-            # ) we use space ratio parameter of roi_align function.
-            # see roi_align document, bounding box should be (x1,y1,x2,y2)
             bounding_box.append([x_min, y_min, x_max, y_max])
 
         # structure label
