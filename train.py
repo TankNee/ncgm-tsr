@@ -78,10 +78,10 @@ def train(args: Config):
 
                 # write to tensorboard
                 writer.add_scalars("loss", loss_map, pbar.n * len(dl_bar) + dl_bar.n)
-                scheduler.step()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                scheduler.step()
                 dl_bar.set_description(f"Loss: {loss.item()}")
             writer.flush()
 
