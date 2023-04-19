@@ -41,10 +41,10 @@ def train(args: Config):
 
         pbar = tqdm(range(args[f"{mode}.epoch"]))
         pbar.set_description("Epoch")
-        dl_bar = tqdm(table_train_dl)
         for epoch in pbar:
             model.train()
             pbar.set_description(f"Epoch {epoch}")
+            dl_bar = tqdm(table_train_dl)
             for batch in dl_bar:
                 (
                     geometry,
