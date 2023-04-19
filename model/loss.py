@@ -8,7 +8,9 @@ class ContrastiveLoss(nn.Module):
     def __init__(self, args: Config, **kwargs):
         super(ContrastiveLoss, self).__init__(**kwargs)
         args_prefix = f"{args['mode']}.model.loss"
+        mode = args["mode"]
         self.alpha_margin = args[f"{args_prefix}.alpha_margin"]
+        self.num_block_padding = args[f"{mode}.dataset.num_block_padding"]
 
     def forward(self, X: torch.Tensor, y: torch.Tensor):
         """Forward
@@ -16,20 +18,17 @@ class ContrastiveLoss(nn.Module):
         formulation: $\mathcal{L}_{\text {con }}=\left\|\mathbf{e}_{(a)}-\mathbf{e}_{(b)}^{+}\right\|_2^2+\max \left\{0, \alpha-\left\|\mathbf{e}_{(a)}-\mathbf{e}_{(b)}^{-}\right\|_2^2\right\}$
 
         Args:
-            X: shape: (batch_size, num_node * num_node, num_hidden * 3 * 2), embedding pairs
-            y: shape: (batch_size, num_node, num_node), labels, adjacency matrix
+            X: shape: (batch_size, num_node * (num_node - 1) / 2, num_hidden * 3 * 2), embedding pairs
+            y: shape: (batch_size, num_node * (num_node - 1) / 2, num_node), labels, adjacency matrix
         """
         if X.shape[2] % 2 != 0:
             raise ValueError("X.shape[2] must be even")
         X_split = X.view(X.shape[0], X.shape[1], 2, -1)
-        num_node = int(X.shape[1] ** 0.5)
-        if num_node**2 != X.shape[1]:
-            raise ValueError("X.shape[1] must be a square number")
-
-        y = y.view(-1)  # shape: (batch_size * num_node * num_node, 1)
-        # shape: (batch_size * num_node * num_node, 2, num_hidden * 3 * 2)
+        mask = torch.triu(torch.ones((500, 500), dtype=torch.bool), diagonal=1)
+        y = y[:, mask].view(-1)  # shape: (batch_size * num_node * (num_node - 1) / 2, 1)
+        # shape: (batch_size * num_node * (num_node - 1) / 2, 2, num_hidden * 3 * 2)
         X_split = X_split.view(-1, 2, X_split.shape[-1])
-        # distance = torch.pow(X_split[:, 0, :] - X_split[:, 1, :], 2).sum(dim=-1) # shape: (batch_size * num_node * num_node, )
+        # distance = torch.pow(X_split[:, 0, :] - X_split[:, 1, :], 2).sum(dim=-1) # shape: (batch_size * num_node * (num_node - 1) / 2, )
         # 二范数的平方
         distance = F.pairwise_distance(X_split[:, 0, :], X_split[:, 1, :])
 
@@ -49,10 +48,12 @@ class ClassificationLoss(nn.Module):
         """Forward
 
         Args:
-            X: shape: (batch_size, num_node * num_node, 2)
+            X: shape: (batch_size, num_node * (num_node - 1) / 2, 2)
             y: shape: (batch_size, num_node, num_node) adjacency matrix
         """
         # 根据邻接矩阵构建新的标签
+        mask = torch.triu(torch.ones((500, 500), dtype=torch.bool), diagonal=1)
+        y = y[:, mask]
         y = y.view(y.shape[0], -1).to(torch.long)
         X = X.view(X.shape[0], 2, -1)
         # 使用交叉熵损失函数
@@ -77,8 +78,8 @@ class MixLoss(nn.Module):
         Given a pair of collaborative graph embeddings and corresponding concatenated vector
 
         Args:
-            logits: shape: (batch_size, num_node * num_node, 2)
-            X: shape: (batch_size, num_node * num_node, num_hidden * 3 * 2)
+            logits: shape: (batch_size, num_node * (num_node - 1) / 2, 2)
+            X: shape: (batch_size, num_node * (num_node - 1) / 2, num_hidden * 3 * 2)
             y: shape: (batch_size, num_node, num_node)
         """
         con_loss = self.con_loss(X, y)
@@ -114,7 +115,7 @@ class NCGMLoss(nn.Module):
             cell_logits: shape: (batch_size, num_node, num_node, 2)
             row_logits: shape: (batch_size, num_node, num_node, 2)
             col_logits: shape: (batch_size, num_node, num_node, 2)
-            X: shape: (batch_size, num_node * num_node, num_hidden * 3 * 2)
+            X: shape: (batch_size, num_node * (num_node - 1) / 2, num_hidden * 3 * 2)
             y: shape: (batch_size, num_node, num_node)
         """
         cell_loss, cell_loss_map = self.cell_loss(cell_logits, X, cell_y)

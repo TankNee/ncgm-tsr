@@ -214,14 +214,14 @@ class SciTSRDataset(Dataset):
 
         # text segment bounding box
         with open(os.path.join(self.path, self.mode, chunk_path), "r") as f:
-            chunk = json.load(f)["chunks"]
-        # padding chunk to a fixed length
-        chunk = (
-            chunk[: self.num_block_padding]
-            if len(chunk) > self.num_block_padding
-            else chunk + [self.get_pad_block()] * (self.num_block_padding - len(chunk))
+            chunks = json.load(f)["chunks"]
+        # padding chunks to a fixed length
+        chunks = (
+            chunks[: self.num_block_padding]
+            if len(chunks) > self.num_block_padding
+            else chunks + [self.get_pad_block()] * (self.num_block_padding - len(chunks))
         )
-        for idx, cell in enumerate(chunk):
+        for idx, cell in enumerate(chunks):
             x_min, x_max, y_min, y_max = cell["pos"]
             x_min = x_min * scale + padding_left
             y_min = y_min * scale + padding_top
@@ -263,6 +263,7 @@ class SciTSRDataset(Dataset):
             row_adj_matrix,
             col_adj_matrix,
             cell_adj_matrix,
+            chunks,
             structure,
         )
 
@@ -289,6 +290,7 @@ class SciTSRDataset(Dataset):
             row_adj_matrix,
             col_adj_matrix,
             cell_adj_matrix,
+            chunks,
             structure,
         ) = zip(*batch)
 
@@ -308,5 +310,6 @@ class SciTSRDataset(Dataset):
             row_adj_matrix,
             col_adj_matrix,
             cell_adj_matrix,
+            chunks,
             structure,
         )

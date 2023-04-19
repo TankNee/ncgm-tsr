@@ -211,7 +211,7 @@ class NCGM(nn.Module):
             )
 
         # fused geometry, appearance, content
-        emb = torch.cat([geometry_emb, appearance_emb, content_emb], dim=-1)
+        emb = torch.cat([geometry_ccs, appearance_ccs, content_ccs], dim=-1)
         # generate pairs of embeddings
         # 整体重复 nodes 遍，单个 node 重复 nodes 遍，再将两个拼接，因为一共是 nodes * nodes 个，正好单个重复的和整体的数量一样，拼接起来就可以得到一个node和其他所有node的pair
         emb_pairs = torch.cat(
@@ -222,7 +222,8 @@ class NCGM(nn.Module):
             dim=-1,
         )
         # flatten, shape: (batch_size, num_nodes * num_nodes, num_hidden * 3)
-        emb_pairs = emb_pairs.view(emb_pairs.shape[0], -1, emb_pairs.shape[-1])
+        mask = torch.triu(torch.ones((500, 500), dtype=torch.bool), diagonal=1)
+        emb_pairs = emb_pairs[:, mask, :]
 
         # binary classification
         cell_output = self.cell_fc(emb_pairs)

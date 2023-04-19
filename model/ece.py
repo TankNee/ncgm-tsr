@@ -8,8 +8,8 @@ class EgoContextExtractor(nn.Module):
     def __init__(self, args: Config, **kwargs):
         super(EgoContextExtractor, self).__init__(**kwargs)
         mode = args["mode"]
-        num_block_padding = args[f"{mode}.dataset.num_block_padding"]
         num_hidden = args[f"{mode}.model.ncgm.num_hidden"]
+        self.num_block_padding = args[f"{mode}.dataset.num_block_padding"]
         self.cmha = CompressedMultiHeadAttention(args)
         self.fc1 = nn.Linear(num_hidden, num_hidden)
         self.fc2 = nn.Linear(num_hidden, num_hidden)
@@ -23,9 +23,11 @@ class EgoContextExtractor(nn.Module):
         Args:
             X: input tensor, shape: (batch_size, num_nodes, num_hidden)
         """
+        # 取上三角矩阵
+        mask = torch.triu(torch.ones((500, 500), dtype=torch.bool), diagonal=1)        
         # xj - xi
-        xj_minus_xi = (X.unsqueeze(2) - X.unsqueeze(1)).view(X.shape[0], -1, X.shape[2])
-        xi = X.unsqueeze(1).repeat(1, X.shape[1], 1, 1).view(X.shape[0], -1, X.shape[2])
+        xj_minus_xi = (X.unsqueeze(2) - X.unsqueeze(1))[:, mask, :]
+        xi = X.unsqueeze(1).repeat(1, X.shape[1], 1, 1)[:, mask, :]
         # fc(xj - xi) and fc(xi)
         xj_minus_xi = self.fc1(xj_minus_xi)
         xi = self.fc2(xi)
