@@ -8,9 +8,9 @@ Date Modified: March 23, 2019
 import torch
 from tqdm import tqdm
 
-from scitsr.data.loader import TableDataset, TableInferDataset, Data
-from scitsr.model import GraphAttention
-from scitsr.table import Chunk
+from eval.scitsr.data.loader import TableDataset, TableInferDataset, Data
+from eval.scitsr.model import GraphAttention
+from eval.scitsr.table import Chunk
 
 
 class Trainer:

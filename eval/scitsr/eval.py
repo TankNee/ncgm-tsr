@@ -7,8 +7,8 @@
 
 from typing import List
 
-from scitsr.relation import Relation
-from scitsr.table import Table, Chunk
+from eval.scitsr.relation import Relation
+from eval.scitsr.table import Table, Chunk
 
 
 DIR_HORIZ = 1

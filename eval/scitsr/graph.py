@@ -7,7 +7,7 @@
 import math
 
 from typing import List
-from scitsr.table import Chunk
+from eval.scitsr.table import Chunk
 
 
 class Vertex(object):

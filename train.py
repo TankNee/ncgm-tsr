@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from data.load import TableDataLoader
 from load import load
 from logger import logger
@@ -84,6 +85,25 @@ def train(args: Config):
                 scheduler.step()
                 dl_bar.set_description(f"Loss: {loss.item()}")
             writer.flush()
+
+        # 对最后一个batch的数据进行eval
+        # model.eval()
+        # with torch.no_grad():
+        #     # cell_output, row_output, col_output 转换成Structure文件
+        #     row_pred = F.softmax(row_output, dim=-1)
+        #     col_pred = F.softmax(col_output, dim=-1)
+
+        #     # construct adjacency matrix
+        #     row_adj_matrix = torch.zeros((row_pred.shape[0], row_pred.shape[1], row_pred.shape[1]))
+        #     col_adj_matrix = torch.zeros((col_pred.shape[0], col_pred.shape[1], col_pred.shape[1]))
+
+        #     for i in range(row_pred.shape[0]):
+        #         for j in range(row_pred.shape[1]):
+        #             row_adj_matrix[i][j][j] = row_pred[i][j][0]
+        #             row_adj_matrix[i][j][j+1] = row_pred[i][j][1]
+        #         row_adj_matrix[i][row_pred.shape[1]-1][row_pred.shape[1]-1] = 1
+        #     pass
+
 
         logger.info("Training finished")
         writer.close()
