@@ -9,7 +9,7 @@ from config import Config
 from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
-
+from eval import json2Relations, eval_relations
 
 class SciTSRDataset(Dataset):
     def __init__(self, args: Config):
