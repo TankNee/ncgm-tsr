@@ -21,10 +21,18 @@ from scitsr.eval import Relation
 
 
 class Data:
-
-    def __init__(self, chunks, relations, cells=None,
-                 path=None, nodes=None, edges=None, 
-                 adj=None, incidence=None, labels=None):
+    def __init__(
+        self,
+        chunks,
+        relations,
+        cells=None,
+        path=None,
+        nodes=None,
+        edges=None,
+        adj=None,
+        incidence=None,
+        labels=None,
+    ):
         self.chunks = chunks
         self.relations = relations
         self.cells = cells
@@ -37,60 +45,72 @@ class Data:
 
 
 class TableDataset(Dataset):
-
-    def __init__(self, dataset_dir, with_cells, trim=None,
-                 node_norm=None, edge_norm=None, exts=None):
-        if exts is None: exts = ['chunk12', 'rel12']
-        raw_dataset = self.load_dataset(
-            dataset_dir, with_cells, trim, exts=exts)
+    def __init__(
+        self,
+        dataset_dir,
+        with_cells,
+        trim=None,
+        node_norm=None,
+        edge_norm=None,
+        exts=None,
+    ):
+        if exts is None:
+            exts = ["chunk12", "rel12"]
+        raw_dataset = self.load_dataset(dataset_dir, with_cells, trim, exts=exts)
         raw_dataset = preprocessing(raw_dataset)
 
         dataset = []
-        for data in tqdm(raw_dataset, desc='TableDataset'):
+        for data in tqdm(raw_dataset, desc="TableDataset"):
             if len(data.chunks) <= 2 or len(data.relations) <= 2:
                 continue
-            data.nodes, data.edges, data.adj, data.incidence, data.labels = \
-                self.transform(data.chunks, data.relations)
+            (
+                data.nodes,
+                data.edges,
+                data.adj,
+                data.incidence,
+                data.labels,
+            ) = self.transform(data.chunks, data.relations)
             dataset.append(data)
         self.node_norm, self.edge_norm = self.feature_normalizaion(
-            dataset, node_norm, edge_norm)
+            dataset, node_norm, edge_norm
+        )
         self.dataset = dataset
 
         self.n_node_features = self.dataset[0].nodes.size(1)
         self.n_edge_features = self.dataset[0].edges.size(1)
         self.output_size = self.dataset[0].labels.max().item() + 1
-    
+
     def shuffle(self):
         random.shuffle(self.dataset)
-    
-    def feature_normalizaion(self, dataset, node_param=None, edge_param=None):
 
+    def feature_normalizaion(self, dataset, node_param=None, edge_param=None):
         def _get_mean_std(features):
             mean = features.mean(dim=0, keepdim=True)
             std = features.std(dim=0, keepdim=True)
             return mean, std
-        
+
         def _norm(features, mean, std, eps=1e-6):
             return (features - mean) / (std + 1e-6)
-        
+
         # normalize edge features
         if edge_param is None:
             all_edge_features = torch.cat([data.edges for data in dataset])
             edge_mean, edge_std = _get_mean_std(all_edge_features)
-        else: edge_mean, edge_std = edge_param
+        else:
+            edge_mean, edge_std = edge_param
         for data in dataset:
             data.edges = _norm(data.edges, edge_mean, edge_std)
-        
+
         # normalize node features
         if node_param is None:
             all_node_features = torch.cat([data.nodes for data in dataset])
             node_mean, node_std = _get_mean_std(all_node_features)
-        else: node_mean, node_std = node_param
+        else:
+            node_mean, node_std = node_param
         for data in dataset:
             data.nodes = _norm(data.nodes, node_mean, node_std)
-        
-        return (node_mean, node_std), (edge_mean, edge_std)
 
+        return (node_mean, node_std), (edge_mean, edge_std)
 
     def transform(self, chunks, relations):
         vertexes = self.get_vertexes(chunks)
@@ -98,16 +118,18 @@ class TableDataset(Dataset):
         adj, incidence = self.get_adjcancy(relations, len(chunks))
         edges = self.get_edges(relations, vertexes)
         labels = self.get_labels(relations)
-        nodes, edges, adj, incidence, labels = \
-            self.to_tensors(nodes, edges, adj, incidence, labels)
-        #nodes, edges = self.normlize(nodes), self.normlize(edges)
+        nodes, edges, adj, incidence, labels = self.to_tensors(
+            nodes, edges, adj, incidence, labels
+        )
+        # nodes, edges = self.normlize(nodes), self.normlize(edges)
         return nodes, edges, adj, incidence, labels
 
     def load_dataset(self, dataset_dir, with_cells, trim=None, debug=False, exts=None):
         dataset, cells = [], []
-        if exts is None: exts = ['chunk', 'rel']
+        if exts is None:
+            exts = ["chunk", "rel"]
         if with_cells:
-            exts.append('json')
+            exts.append("json")
         sub_paths = self.get_sub_paths(dataset_dir, exts, trim=trim)
         for i, paths in enumerate(sub_paths):
             if debug and i > 50:
@@ -117,10 +139,10 @@ class TableDataset(Dataset):
 
             chunks = self.load_chunks(chunk_path)
             # TODO handle big tables
-            #if len(chunks) > 100 or len(chunks) == 0: continue
+            # if len(chunks) > 100 or len(chunks) == 0: continue
             relations = self.load_relations(relation_path)
-            #new_chunks, new_rels = self.clean_chunk_rel(chunks, relations)
-            #chunks, relations = new_chunks, new_rels
+            # new_chunks, new_rels = self.clean_chunk_rel(chunks, relations)
+            # chunks, relations = new_chunks, new_rels
 
             if with_cells:
                 cell_path = paths[2]
@@ -129,14 +151,16 @@ class TableDataset(Dataset):
             else:
                 cell_json = None
 
-            dataset.append(Data(
-                chunks=chunks,
-                relations=relations,
-                cells=cell_json,
-                path=chunk_path,
-            ))
+            dataset.append(
+                Data(
+                    chunks=chunks,
+                    relations=relations,
+                    cells=cell_json,
+                    path=chunk_path,
+                )
+            )
         return dataset
-    
+
     def clean_chunk_rel(self, chunks, relations):
         """Remove null chunks"""
         new_chunks = []
@@ -150,12 +174,13 @@ class TableDataset(Dataset):
         for i, j, t in relations:
             ni = oldid2newid[i]
             nj = oldid2newid[j]
-            if ni != -1 and nj != -1: new_rels.append((ni, nj, t))
+            if ni != -1 and nj != -1:
+                new_rels.append((ni, nj, t))
         return new_chunks, new_rels
 
     def load_chunks(self, chunk_path):
-        with open(chunk_path, 'r') as f:
-            chunks = json.load(f)['chunks']
+        with open(chunk_path, "r") as f:
+            chunks = json.load(f)["chunks"]
         # NOTE remove the chunk with 0 len
         ret = []
         for chunk in chunks:
@@ -163,18 +188,18 @@ class TableDataset(Dataset):
                 chunk["pos"][0], chunk["pos"][1] = chunk["pos"][1], chunk["pos"][0]
                 print("Warning load illegal chunk.")
             c = Chunk.load_from_dict(chunk)
-            #if c.x2 == c.x1 or c.y2 == c.y1 or c.text == "": 
+            # if c.x2 == c.x1 or c.y2 == c.y1 or c.text == "":
             #    continue
             ret.append(c)
         return ret
 
     def load_relations(self, relation_path):
-        with open(relation_path, 'r') as f:
+        with open(relation_path, "r") as f:
             lines = f.readlines()
         relations = []
         for line in lines:
-            i, j, t = line.split('\t')
-            i, j, t = int(i), int(j), int(t.split(':')[0])
+            i, j, t = line.split("\t")
+            i, j, t = int(i), int(j), int(t.split(":")[0])
             relations.append((i, j, t))
         return relations
 
@@ -195,11 +220,11 @@ class TableDataset(Dataset):
             sub_paths = [os.path.join(sub_dirs[0], file_name)]
             name = os.path.splitext(file_name)[0]
             for ext in sub_names[1:]:
-                sub_path = os.path.join(root_dir, ext, name + '.' + ext)
+                sub_path = os.path.join(root_dir, ext, name + "." + ext)
                 assert os.path.exists(sub_path)
                 sub_paths.append(sub_path)
             paths.append(sub_paths)
-        
+
         return paths
 
     def get_vertexes(self, chunks):
@@ -254,7 +279,7 @@ class TableDataset(Dataset):
         labels = torch.tensor(labels, dtype=torch.long)
         return nodes, edges, adj, incidence, labels
 
-    #TODO normalize over dataset?
+    # TODO normalize over dataset?
     def normlize(self, features):
         mean = features.mean(dim=0, keepdim=True)
         std = features.std(dim=0, keepdim=True)
@@ -269,23 +294,29 @@ class TableDataset(Dataset):
 
 
 class TableInferDataset(TableDataset):
-
-    def __init__(self, dataset_dir, trim=None,
-                 node_norm=None, edge_norm=None, exts=None):
-        if exts is None: exts = ['chunk12', 'rel12']
-        raw_dataset = self.load_dataset(
-            dataset_dir, True, trim, exts=exts)
+    def __init__(
+        self, dataset_dir, trim=None, node_norm=None, edge_norm=None, exts=None
+    ):
+        if exts is None:
+            exts = ["chunk12", "rel12"]
+        raw_dataset = self.load_dataset(dataset_dir, True, trim, exts=exts)
         raw_dataset = preprocessing(raw_dataset)
 
         dataset = []
-        for data in tqdm(raw_dataset, desc='TableInferDataset'):
+        for data in tqdm(raw_dataset, desc="TableInferDataset"):
             if len(data.chunks) <= 2 or len(data.relations) <= 2:
                 continue
-            data.nodes, data.edges, data.adj, data.incidence, data.relations = \
-                self.transform(data.chunks)
+            (
+                data.nodes,
+                data.edges,
+                data.adj,
+                data.incidence,
+                data.relations,
+            ) = self.transform(data.chunks)
             dataset.append(data)
         self.node_norm, self.edge_norm = self.feature_normalizaion(
-            dataset, node_norm, edge_norm)
+            dataset, node_norm, edge_norm
+        )
         self.dataset = dataset
 
         self.n_node_features = self.dataset[0].nodes.size(1)
@@ -300,9 +331,8 @@ class TableInferDataset(TableDataset):
             return None
         adj, incidence = self.get_adjcancy(relations, len(chunks))
         edges = self.get_edges(relations, vertexes)
-        nodes, edges, adj, incidence = \
-            self.to_tensors(nodes, edges, adj, incidence)
-        #nodes, edges = self.normlize(nodes), self.normlize(edges)
+        nodes, edges, adj, incidence = self.to_tensors(nodes, edges, adj, incidence)
+        # nodes, edges = self.normlize(nodes), self.normlize(edges)
         return nodes, edges, adj, incidence, relations
 
     def to_tensors(self, nodes, edges, adj, incidence):
