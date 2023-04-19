@@ -24,7 +24,7 @@ class ContrastiveLoss(nn.Module):
         if X.shape[2] % 2 != 0:
             raise ValueError("X.shape[2] must be even")
         X_split = X.view(X.shape[0], X.shape[1], 2, -1)
-        mask = torch.triu(torch.ones((500, 500), dtype=torch.bool), diagonal=1)
+        mask = torch.triu(torch.ones((self.num_block_padding, self.num_block_padding), dtype=torch.bool), diagonal=1)
         y = y[:, mask].view(-1)  # shape: (batch_size * num_node * (num_node - 1) / 2, 1)
         # shape: (batch_size * num_node * (num_node - 1) / 2, 2, num_hidden * 3 * 2)
         X_split = X_split.view(-1, 2, X_split.shape[-1])
@@ -43,6 +43,8 @@ class ClassificationLoss(nn.Module):
     def __init__(self, args: Config, **kwargs):
         super(ClassificationLoss, self).__init__(**kwargs)
         args_prefix = f"{args['mode']}.model.loss"
+        mode = args["mode"]
+        self.num_block_padding = args[f"{mode}.dataset.num_block_padding"]
 
     def forward(self, X: torch.Tensor, y: torch.Tensor):
         """Forward
@@ -52,7 +54,7 @@ class ClassificationLoss(nn.Module):
             y: shape: (batch_size, num_node, num_node) adjacency matrix
         """
         # 根据邻接矩阵构建新的标签
-        mask = torch.triu(torch.ones((500, 500), dtype=torch.bool), diagonal=1)
+        mask = torch.triu(torch.ones((self.num_block_padding, self.num_block_padding), dtype=torch.bool), diagonal=1)
         y = y[:, mask]
         y = y.view(y.shape[0], -1).to(torch.long)
         X = X.view(X.shape[0], 2, -1)

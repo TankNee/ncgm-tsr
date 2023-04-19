@@ -24,7 +24,7 @@ class EgoContextExtractor(nn.Module):
             X: input tensor, shape: (batch_size, num_nodes, num_hidden)
         """
         # 取上三角矩阵
-        mask = torch.triu(torch.ones((500, 500), dtype=torch.bool), diagonal=1)        
+        mask = torch.triu(torch.ones((self.num_block_padding, self.num_block_padding), dtype=torch.bool), diagonal=1)        
         # xj - xi
         xj_minus_xi = (X.unsqueeze(2) - X.unsqueeze(1))[:, mask, :]
         xi = X.unsqueeze(1).repeat(1, X.shape[1], 1, 1)[:, mask, :]

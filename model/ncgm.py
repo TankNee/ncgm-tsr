@@ -61,6 +61,7 @@ class NCGM(nn.Module):
     def __init__(self, args: Config, **kwargs):
         super(NCGM, self).__init__(**kwargs)
         args_prefix = f"{args['mode']}.model.ncgm"
+        mode = args["mode"]
         num_hidden_concat = args[f"{args_prefix}.num_hidden"] * 3 * 2
         num_hidden_fc = args[f"{args_prefix}.num_hidden_fc"]
         num_backbone_filter_size = args[f"{args_prefix}.num_backbone_filter_size"]
@@ -68,6 +69,7 @@ class NCGM(nn.Module):
             f"{args_prefix}.num_backbone_filter_out_channel"
         ]
         self.roi_align_size = args[f"{args_prefix}.roi_align_size"]
+        self.num_block_padding = args[f"{mode}.dataset.num_block_padding"]
         self.num_block = args[f"{args_prefix}.num_block"]
         self.feat_map_scale = args[f"{args['mode']}.dataset.feat_map_scale"]
 
@@ -222,7 +224,7 @@ class NCGM(nn.Module):
             dim=-1,
         )
         # flatten, shape: (batch_size, num_nodes * num_nodes, num_hidden * 3)
-        mask = torch.triu(torch.ones((500, 500), dtype=torch.bool), diagonal=1)
+        mask = torch.triu(torch.ones((self.num_block_padding, self.num_block_padding), dtype=torch.bool), diagonal=1)
         emb_pairs = emb_pairs[:, mask, :]
 
         # binary classification
