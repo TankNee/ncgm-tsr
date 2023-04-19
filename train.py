@@ -77,7 +77,7 @@ def train(args: Config):
                 )
 
                 # write to tensorboard
-                writer.add_scalars(f"epoch-{epoch}/loss", loss_map, pbar.n * len(dl_bar) + dl_bar.n)
+                writer.add_scalars(f"epoch-{epoch}/loss", loss_map, dl_bar.n)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
