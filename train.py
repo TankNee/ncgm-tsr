@@ -87,10 +87,11 @@ def train(args: Config):
 
                 # write to tensorboard
                 writer.add_scalars(f"epoch_{epoch}/loss", loss_map, dl_bar.n)
-                optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args[f"{mode}.max_grad_norm"])
                 optimizer.step()
                 scheduler.step()
+                model.zero_grad()
                 dl_bar.set_description(f"Loss: {loss.item()}")
             writer.flush()
 
