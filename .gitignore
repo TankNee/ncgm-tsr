@@ -9,3 +9,4 @@ test.ipynb
 gpt*
 logs/tensorboard
 batch.pkl
+checkpoints/*.pth
