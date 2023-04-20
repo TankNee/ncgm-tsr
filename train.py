@@ -18,7 +18,13 @@ def train(args: Config):
     model, criterion, optimizer = load(args)
     gpu_id = args[f"{mode}.gpu"]
     num_block_padding = args[f"{mode}.dataset.num_block_padding"]
-    device = torch.device("cuda", gpu_id) if gpu_id >= 0 else torch.device("cpu")
+    device = (
+        torch.device("cuda", gpu_id)
+        if gpu_id >= 0
+        else torch.device("mps")
+        if gpu_id == -2
+        else torch.device("cpu")
+    )
     model.to(device)
     # optimizer.to(device)
     # criterion.to(device)
@@ -80,7 +86,7 @@ def train(args: Config):
                 )
 
                 # write to tensorboard
-                writer.add_scalars(f"epoch-{epoch}/loss", loss_map, dl_bar.n)
+                writer.add_scalars(f"epoch_{epoch}/loss", loss_map, dl_bar.n)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -88,38 +94,43 @@ def train(args: Config):
                 dl_bar.set_description(f"Loss: {loss.item()}")
             writer.flush()
 
+        # 保存模型
+        torch.save(model.state_dict(), args[f"{mode}.save_path"])
+        logger.info(f"Model saved to {args[f'{mode}.save_path']}")
+
         # 对最后一个batch的数据进行eval
-        # model.eval()
-        # with torch.no_grad():
-        #     # cell_output, row_output, col_output 转换成Structure文件
-        #     row_pred = F.softmax(row_output, dim=-1)
-        #     col_pred = F.softmax(col_output, dim=-1)
+        model.eval()
+        with torch.no_grad():
+            # cell_output, row_output, col_output 转换成Structure文件
+            row_pred = F.softmax(row_output, dim=-1)
+            col_pred = F.softmax(col_output, dim=-1)
 
-        #     # construct adjacency matrix
-        #     row_adj_matrix = torch.zeros(
-        #         (row_pred.shape[0], row_pred.shape[1], row_pred.shape[1])
-        #     )
-        #     col_adj_matrix = torch.zeros(
-        #         (col_pred.shape[0], col_pred.shape[1], col_pred.shape[1])
-        #     )
+            # construct adjacency matrix
+            row_adj_matrix_pred = torch.zeros(
+                (row_pred.shape[0], num_block_padding, num_block_padding)
+            )
+            col_adj_matrix_pred = torch.zeros(
+                (row_pred.shape[0], num_block_padding, num_block_padding)
+            )
+            mask = torch.triu(torch.ones((num_block_padding, num_block_padding), dtype=torch.bool), diagonal=1)
+            row_adj_matrix_pred[:, mask] = row_pred
+            col_adj_matrix_pred[:, mask] = col_pred
 
-        #     for i in range(row_pred.shape[0]):
-        #         for j in range(row_pred.shape[1]):
-        #             for k in range(row_pred.shape[1]):
-        #                 if j == k:
-        #                     continue
-        #                 row_adj_matrix[i][j][k] = row_pred[i][j * num_block_padding + k]
-        #         for j in range(col_pred.shape[1]):
-        #             for k in range(col_pred.shape[1]):
-        #                 if j == k:
-        #                     continue
-        #                 col_adj_matrix[i][j][k] = col_pred[i][j * num_block_padding + k]
+            row_adj_matrix_pred = row_adj_matrix_pred + torch.transpose(row_adj_matrix_pred, dim0=1, dim1=2)
+            col_adj_matrix_pred = col_adj_matrix_pred + torch.transpose(col_adj_matrix_pred, dim0=1, dim1=2)
 
-            # construct structure
-            # construct cell: start_row, start_col, end_row, end_col
+            writer.add_image_with_boxes("origin table", appearance[0], bounding_box[0])
+            writer.add_image("adj_matrix/row/gt", row_adj_matrix[0])
+            writer.add_image("adj_matrix/row/pred", row_adj_matrix_pred[0])
+            writer.add_image("adj_matrix/col/gt", col_adj_matrix[0])
+            writer.add_image("adj_matrix/col/pred", col_adj_matrix_pred[0])
 
 
+            # construct chunks
 
+
+        # construct structure
+        # construct cell: start_row, start_col, end_row, end_col
 
         logger.info("Training finished")
         writer.close()

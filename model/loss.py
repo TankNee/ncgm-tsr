@@ -46,18 +46,19 @@ class ClassificationLoss(nn.Module):
         mode = args["mode"]
         self.num_block_padding = args[f"{mode}.dataset.num_block_padding"]
 
-    def forward(self, X: torch.Tensor, y: torch.Tensor):
+    def forward(self, X: torch.Tensor, emb_pairs: torch.Tensor, y: torch.Tensor):
         """Forward
 
         Args:
             X: shape: (batch_size, num_node * (num_node - 1) / 2, 2)
+            emb_pairs: shape: (batch_size, num_node * (num_node - 1) / 2, num_hidden * 3 * 2)
             y: shape: (batch_size, num_node, num_node) adjacency matrix
         """
         # 根据邻接矩阵构建新的标签
         mask = torch.triu(torch.ones((self.num_block_padding, self.num_block_padding), dtype=torch.bool), diagonal=1)
         y = y[:, mask]
         y = y.view(y.shape[0], -1).to(torch.long)
-        X = X.view(X.shape[0], 2, -1)
+        X = X.view(X.shape[0], 2, -1) / 0.1 # 添加一个温度函数
         # 使用交叉熵损失函数
         return F.cross_entropy(X, y)
 
@@ -85,7 +86,7 @@ class MixLoss(nn.Module):
             y: shape: (batch_size, num_node, num_node)
         """
         con_loss = self.con_loss(X, y)
-        class_loss = self.class_loss(logits, y)
+        class_loss = self.class_loss(logits, X, y)
         loss_map = {
             f"{self.name}_con": con_loss.item(),
             f"{self.name}_class": class_loss.item(),

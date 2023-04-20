@@ -8,3 +8,4 @@ test.ipynb
 .idea
 gpt*
 logs/tensorboard
+batch.pkl
